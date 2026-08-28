@@ -1,4 +1,4 @@
-# musicgen-personas
+# MusicHub
 
 A self-hosted song generator with **reusable named voice personas** — the
 same idea Suno's product is built around (pick a voice, generate as many
@@ -40,7 +40,7 @@ time instead of re-specifying a voice for every song.
 ## Setup
 
 ```bash
-cd music-generator
+cd musichub
 pip install -e .              # persona management only (lightweight)
 pip install -e ".[generate]"  # + Bark/torch, needed to actually generate audio
 ```
@@ -52,27 +52,27 @@ is strongly recommended — Bark runs on CPU but is slow.
 
 ```bash
 # See the starter voices
-musicgen-personas persona list
+musichub persona list
 
 # Add your own voice built on a Bark preset
-musicgen-personas persona create \
+musichub persona create \
   --name "Nova" --voice v2/en_speaker_5 \
   --genre "synthwave" --description "Cool, detached female synth voice"
 
 # Register a custom cloned voice (produced with a separate cloning tool,
 # e.g. https://github.com/serp-ai/bark-with-voice-clone, which outputs
 # Bark history_prompt .npz files)
-musicgen-personas persona save-clone \
+musichub persona save-clone \
   --name "MyVoice" --npz personas/custom/myvoice.npz \
   --genre "rock" --description "My own cloned singing voice"
 
 # Generate a song with a saved persona -- reuse it as many times as you like
-musicgen-personas generate \
+musichub generate \
   --persona Aria \
   --lyrics "♪ Walking down the street tonight, city lights are burning bright ♪" \
   --out output/aria_song_1.wav
 
-musicgen-personas generate \
+musichub generate \
   --persona Aria \
   --lyrics-file lyrics/verse2.txt \
   --out output/aria_song_2.wav \
@@ -104,7 +104,7 @@ GPU box), and your phone just talks to it over the browser.
 
 ```bash
 pip install -e ".[generate,web]"
-musicgen-personas-web
+musichub-web
 ```
 
 Then from your phone, on the same wifi as that machine, open
@@ -123,7 +123,7 @@ responsive while Bark works.
 ## Project layout
 
 ```
-music-generator/
+musichub/
   musicgen_personas/
     cli.py               # command-line interface
     web/                  # phone-friendly web UI (FastAPI + static page)

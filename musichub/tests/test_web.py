@@ -17,7 +17,7 @@ def client(tmp_path, monkeypatch):
 def test_index_serves_html(client):
     res = client.get("/")
     assert res.status_code == 200
-    assert "Song Studio" in res.text
+    assert "MusicHub" in res.text
 
 
 def test_presets_are_listed(client):

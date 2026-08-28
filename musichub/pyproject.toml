@@ -3,7 +3,7 @@ requires = ["setuptools>=61.0"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "musicgen-personas"
+name = "musichub"
 version = "0.1.0"
 description = "Self-hosted, persona-based song generator built on Suno's open-source Bark model"
 requires-python = ">=3.9"
@@ -18,8 +18,8 @@ web = ["fastapi", "uvicorn[standard]"]
 dev = ["pytest", "httpx"]
 
 [project.scripts]
-musicgen-personas = "musicgen_personas.cli:main"
-musicgen-personas-web = "musicgen_personas.web.app:run"
+musichub = "musicgen_personas.cli:main"
+musichub-web = "musicgen_personas.web.app:run"
 
 [tool.setuptools.packages.find]
 include = ["musicgen_personas*"]
