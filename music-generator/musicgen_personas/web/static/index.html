@@ -1,0 +1,294 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Song Studio</title>
+<style>
+  :root {
+    color-scheme: light dark;
+    --bg: #f6f5f3;
+    --card: #ffffff;
+    --text: #1c1b1a;
+    --muted: #6b6863;
+    --accent: #7a4cff;
+    --accent-text: #ffffff;
+    --border: #e4e1db;
+    --error: #c0392b;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #17161a;
+      --card: #221f26;
+      --text: #f1efe9;
+      --muted: #a9a49b;
+      --accent: #9a7bff;
+      --accent-text: #17161a;
+      --border: #34303a;
+      --error: #ff8a75;
+    }
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--text);
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    padding: 16px 16px 48px;
+    max-width: 640px;
+    margin-inline: auto;
+  }
+  h1 { font-size: 1.4rem; margin: 8px 0 4px; }
+  .subtitle { color: var(--muted); font-size: 0.9rem; margin-bottom: 20px; }
+  .card {
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 14px;
+    padding: 16px;
+    margin-bottom: 16px;
+  }
+  label { display: block; font-size: 0.85rem; color: var(--muted); margin-bottom: 6px; }
+  select, textarea, input {
+    width: 100%;
+    font-size: 1rem;
+    padding: 10px 12px;
+    border-radius: 10px;
+    border: 1px solid var(--border);
+    background: var(--bg);
+    color: var(--text);
+    margin-bottom: 12px;
+    font-family: inherit;
+  }
+  textarea { min-height: 96px; resize: vertical; }
+  .persona-hint { font-size: 0.8rem; color: var(--muted); margin: -6px 0 12px; }
+  button {
+    width: 100%;
+    font-size: 1rem;
+    font-weight: 600;
+    padding: 13px;
+    border-radius: 10px;
+    border: none;
+    background: var(--accent);
+    color: var(--accent-text);
+    cursor: pointer;
+  }
+  button:disabled { opacity: 0.5; }
+  button.secondary {
+    background: transparent;
+    border: 1px solid var(--border);
+    color: var(--text);
+  }
+  details summary {
+    cursor: pointer;
+    font-size: 0.9rem;
+    color: var(--muted);
+    margin-bottom: 10px;
+  }
+  .row { display: flex; gap: 10px; }
+  .row > * { flex: 1; }
+  .status { font-size: 0.9rem; margin-top: 10px; color: var(--muted); }
+  .status.error { color: var(--error); }
+  audio { width: 100%; margin-top: 10px; }
+  .song {
+    border-top: 1px solid var(--border);
+    padding-top: 12px;
+    margin-top: 12px;
+  }
+  .song:first-child { border-top: none; padding-top: 0; margin-top: 0; }
+  .song-meta { font-size: 0.85rem; color: var(--muted); }
+  .empty { color: var(--muted); font-size: 0.9rem; }
+</style>
+</head>
+<body>
+  <h1>Song Studio</h1>
+  <div class="subtitle">Reusable voice personas, generated with Bark. Pick a voice, write lyrics, go.</div>
+
+  <div class="card">
+    <label for="persona-select">Voice persona</label>
+    <select id="persona-select"></select>
+    <div id="persona-hint" class="persona-hint"></div>
+
+    <details>
+      <summary>+ New voice from a preset</summary>
+      <label for="new-name">Name</label>
+      <input id="new-name" type="text" placeholder="e.g. Nova">
+      <label for="new-preset">Base preset</label>
+      <select id="new-preset"></select>
+      <label for="new-genre">Genre</label>
+      <input id="new-genre" type="text" placeholder="e.g. synthwave">
+      <label for="new-desc">Description</label>
+      <input id="new-desc" type="text" placeholder="e.g. Cool, detached female synth voice">
+      <button type="button" class="secondary" id="create-persona-btn">Save voice</button>
+      <div id="create-status" class="status"></div>
+    </details>
+  </div>
+
+  <div class="card">
+    <label for="lyrics">Lyrics</label>
+    <textarea id="lyrics" placeholder="&#9834; Walking down the street tonight &#9834;"></textarea>
+
+    <details>
+      <summary>Advanced</summary>
+      <div class="row">
+        <div>
+          <label for="seed">Seed (optional)</label>
+          <input id="seed" type="number" placeholder="random">
+        </div>
+        <div>
+          <label for="reset-every">Voice reset every N chunks</label>
+          <input id="reset-every" type="number" value="4">
+        </div>
+      </div>
+    </details>
+
+    <button type="button" id="generate-btn">Generate song</button>
+    <div id="generate-status" class="status"></div>
+  </div>
+
+  <div class="card">
+    <label>Recent songs</label>
+    <div id="songs"><div class="empty">Nothing generated yet.</div></div>
+  </div>
+
+<script>
+const $ = (id) => document.getElementById(id);
+let personas = [];
+let presets = [];
+let pollTimer = null;
+
+async function api(path, options) {
+  const res = await fetch(path, options);
+  const body = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(body.detail || res.statusText);
+  return body;
+}
+
+function personaLabel(p) {
+  return `${p.name} — ${p.genre || 'voice'}${p.description ? ' (' + p.description + ')' : ''}`;
+}
+
+async function loadPersonas() {
+  personas = await api('/api/personas');
+  const select = $('persona-select');
+  select.innerHTML = personas.map(p => `<option value="${p.name}">${personaLabel(p)}</option>`).join('');
+  updatePersonaHint();
+}
+
+function updatePersonaHint() {
+  const p = personas.find(p => p.name === $('persona-select').value);
+  $('persona-hint').textContent = p ? p.description : '';
+}
+
+async function loadPresets() {
+  presets = await api('/api/presets');
+  $('new-preset').innerHTML = presets.map(
+    p => `<option value="${p.voice}">${p.name} — ${p.description}</option>`
+  ).join('');
+}
+
+async function createPersona() {
+  const name = $('new-name').value.trim();
+  const voice = $('new-preset').value;
+  if (!name) { $('create-status').textContent = 'Give it a name first.'; return; }
+  $('create-status').textContent = 'Saving...';
+  try {
+    await api('/api/personas', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        name, voice,
+        genre: $('new-genre').value.trim(),
+        description: $('new-desc').value.trim(),
+      }),
+    });
+    $('create-status').textContent = `Saved "${name}".`;
+    $('new-name').value = ''; $('new-genre').value = ''; $('new-desc').value = '';
+    await loadPersonas();
+    $('persona-select').value = name;
+    updatePersonaHint();
+  } catch (e) {
+    $('create-status').textContent = e.message;
+  }
+}
+
+function renderSongs(jobs) {
+  const container = $('songs');
+  if (!jobs.length) { container.innerHTML = '<div class="empty">Nothing generated yet.</div>'; return; }
+  container.innerHTML = jobs.map(j => {
+    const when = new Date(j.created_at * 1000).toLocaleString();
+    let body = '';
+    if (j.status === 'done') {
+      body = `<audio controls src="/api/jobs/${j.job_id}/audio"></audio>`;
+    } else if (j.status === 'error') {
+      body = `<div class="status error">Failed: ${j.error || 'unknown error'}</div>`;
+    } else {
+      body = `<div class="status">${j.status}...</div>`;
+    }
+    return `<div class="song">
+      <div class="song-meta">${j.persona} · ${when}</div>
+      ${body}
+    </div>`;
+  }).join('');
+}
+
+async function refreshJobs() {
+  const jobs = await api('/api/jobs');
+  renderSongs(jobs);
+  return jobs;
+}
+
+async function generate() {
+  const lyrics = $('lyrics').value.trim();
+  if (!lyrics) { $('generate-status').textContent = 'Write some lyrics first.'; return; }
+  const btn = $('generate-btn');
+  btn.disabled = true;
+  $('generate-status').textContent = 'Queued — this can take a few minutes...';
+  try {
+    const seedVal = $('seed').value;
+    const { job_id } = await api('/api/generate', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        persona: $('persona-select').value,
+        lyrics,
+        seed: seedVal === '' ? null : Number(seedVal),
+        reset_every: Number($('reset-every').value || 4),
+      }),
+    });
+    pollJob(job_id, btn);
+  } catch (e) {
+    $('generate-status').textContent = e.message;
+    btn.disabled = false;
+  }
+}
+
+function pollJob(jobId, btn) {
+  if (pollTimer) clearInterval(pollTimer);
+  pollTimer = setInterval(async () => {
+    await refreshJobs();
+    const status = await api(`/api/jobs/${jobId}`);
+    if (status.status === 'done') {
+      clearInterval(pollTimer);
+      $('generate-status').textContent = 'Done!';
+      btn.disabled = false;
+    } else if (status.status === 'error') {
+      clearInterval(pollTimer);
+      $('generate-status').textContent = 'Failed: ' + (status.error || 'unknown error');
+      btn.disabled = false;
+    } else {
+      $('generate-status').textContent = status.status + '...';
+    }
+  }, 3000);
+}
+
+$('persona-select').addEventListener('change', updatePersonaHint);
+$('create-persona-btn').addEventListener('click', createPersona);
+$('generate-btn').addEventListener('click', generate);
+
+(async function init() {
+  await Promise.all([loadPersonas(), loadPresets()]);
+  await refreshJobs();
+})();
+</script>
+</body>
+</html>

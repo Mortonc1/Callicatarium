@@ -37,8 +37,8 @@ class Persona:
 class PersonaRegistry:
     """Load/save/manage a JSON-backed collection of reusable voice personas."""
 
-    def __init__(self, path: Path | str = DEFAULT_REGISTRY_PATH):
-        self.path = Path(path)
+    def __init__(self, path: Path | str | None = None):
+        self.path = Path(path) if path is not None else DEFAULT_REGISTRY_PATH
         self._personas: dict[str, Persona] = {}
         if self.path.exists():
             self._load()

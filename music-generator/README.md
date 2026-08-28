@@ -90,16 +90,50 @@ of sounding cut-and-spliced. Every `--reset-every` chunks (default 4) it
 snaps back to the persona's base voice, since chaining state indefinitely
 lets Bark's voices drift off-character over a long generation.
 
+## Phone / web UI
+
+No terminal needed day-to-day: a small mobile-friendly web app wraps the
+same persona system with a page you can drive from your phone's browser —
+pick a voice, write lyrics, tap Generate, listen to (and re-play) your
+recent songs.
+
+The Bark model still has to actually run somewhere with real compute
+(ideally a GPU) — a phone can't do that itself. So this is a small server
+you start once on a capable machine (your desktop, a home server, a cloud
+GPU box), and your phone just talks to it over the browser.
+
+```bash
+pip install -e ".[generate,web]"
+musicgen-personas-web
+```
+
+Then from your phone, on the same wifi as that machine, open
+`http://<that machine's LAN IP>:8000` (find the IP with `ipconfig`/`ifconfig`
+on the host). For access from outside your home network, put something like
+[Tailscale](https://tailscale.com) or an SSH tunnel in front of it rather
+than exposing port 8000 directly to the internet.
+
+The web UI can list personas, create new ones from a curated preset, submit
+a generation job, and poll it to completion with an inline audio player —
+everything the CLI does except registering a custom voice clone, which
+still needs the `persona save-clone` command since that involves a file on
+disk. Generation runs one job at a time in the background so the page stays
+responsive while Bark works.
+
 ## Project layout
 
 ```
 music-generator/
-  musicgen_personas/   # library + CLI
+  musicgen_personas/
+    cli.py               # command-line interface
+    web/                  # phone-friendly web UI (FastAPI + static page)
+    generate.py, personas.py, clone.py, presets.py
   personas/
-    registry.json       # your saved personas (seeded with 8 starter voices)
-    custom/              # your cloned-voice .npz files (git-ignored)
-  output/                # generated songs (git-ignored)
-  tests/                 # unit tests for persona management (no GPU needed)
+    registry.json        # your saved personas (seeded with 8 starter voices)
+    custom/                # your cloned-voice .npz files (git-ignored)
+  output/                  # generated songs (git-ignored)
+  tests/                   # unit tests -- persona registry, chunking/continuity,
+                            # and the web API's job pipeline (no GPU needed for any of it)
 ```
 
 ## Notes and limitations
@@ -128,3 +162,10 @@ itself fails with a 403 in that environment. On a normal machine with open
 network access, this should proceed straight through to producing a
 `.wav`. If you hit anything past that point, it's a genuinely new issue
 worth reporting.
+
+The web app was verified for real: started as an actual server and hit
+over real HTTP (not just in-process), confirming the page loads, the
+persona/preset APIs return real data, and a submitted generation job
+correctly moves through queued → running → a terminal state visible from
+the page. The one thing it inherits, unverified for the same reason as
+above, is real audio at the end of that pipeline.
