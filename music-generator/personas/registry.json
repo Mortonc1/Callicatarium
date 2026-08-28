@@ -1,0 +1,82 @@
+{
+  "Aria": {
+    "name": "Aria",
+    "voice_source_type": "preset",
+    "voice_source_value": "v2/en_speaker_9",
+    "genre": "pop",
+    "description": "Bright, energetic female vocalist",
+    "text_temp": 0.7,
+    "waveform_temp": 0.7,
+    "created_at": 1700000000.0
+  },
+  "Marlowe": {
+    "name": "Marlowe",
+    "voice_source_type": "preset",
+    "voice_source_value": "v2/en_speaker_6",
+    "genre": "narration",
+    "description": "Warm, deep male narrator",
+    "text_temp": 0.7,
+    "waveform_temp": 0.7,
+    "created_at": 1700000000.0
+  },
+  "Juno": {
+    "name": "Juno",
+    "voice_source_type": "preset",
+    "voice_source_value": "v2/en_speaker_3",
+    "genre": "indie",
+    "description": "Soft, breathy female indie voice",
+    "text_temp": 0.7,
+    "waveform_temp": 0.7,
+    "created_at": 1700000000.0
+  },
+  "Rook": {
+    "name": "Rook",
+    "voice_source_type": "preset",
+    "voice_source_value": "v2/en_speaker_2",
+    "genre": "rock",
+    "description": "Gravelly, powerful male rock voice",
+    "text_temp": 0.7,
+    "waveform_temp": 0.7,
+    "created_at": 1700000000.0
+  },
+  "Selene": {
+    "name": "Selene",
+    "voice_source_type": "preset",
+    "voice_source_value": "v2/en_speaker_4",
+    "genre": "ballad",
+    "description": "Smooth, emotive female ballad voice",
+    "text_temp": 0.7,
+    "waveform_temp": 0.7,
+    "created_at": 1700000000.0
+  },
+  "Atlas": {
+    "name": "Atlas",
+    "voice_source_type": "preset",
+    "voice_source_value": "v2/en_speaker_8",
+    "genre": "hiphop",
+    "description": "Confident, rhythmic male voice",
+    "text_temp": 0.7,
+    "waveform_temp": 0.7,
+    "created_at": 1700000000.0
+  },
+  "Wren": {
+    "name": "Wren",
+    "voice_source_type": "preset",
+    "voice_source_value": "v2/en_speaker_1",
+    "genre": "folk",
+    "description": "Light, airy female folk voice",
+    "text_temp": 0.7,
+    "waveform_temp": 0.7,
+    "created_at": 1700000000.0
+  },
+  "Dorian": {
+    "name": "Dorian",
+    "voice_source_type": "preset",
+    "voice_source_value": "v2/en_speaker_7",
+    "genre": "jazz",
+    "description": "Smoky, laid-back male jazz voice",
+    "text_temp": 0.7,
+    "waveform_temp": 0.7,
+    "created_at": 1700000000.0
+  }
+}

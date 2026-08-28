@@ -1,0 +1,15 @@
+__pycache__/
+*.pyc
+.venv/
+*.egg-info/
+
+# Generated songs
+output/*.wav
+!output/.gitkeep
+
+# Custom cloned voices (large, personal, and machine-specific)
+personas/custom/*.npz
+!personas/custom/.gitkeep
+
+# Bark model weight cache, if pointed here
+.cache/

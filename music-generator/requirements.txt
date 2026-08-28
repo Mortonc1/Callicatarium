@@ -1,0 +1,7 @@
+# Core (needed for persona management even without audio generation)
+numpy
+scipy
+
+# Needed only to actually generate audio (pulls in torch, ~GBs).
+# Installed via the 'generate' extra instead of listing it unconditionally here:
+#   pip install -e ".[generate]"
