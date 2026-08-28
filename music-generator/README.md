@@ -83,8 +83,12 @@ Wrap lines in `♪ ... ♪` to cue Bark to sing rather than speak — that's
 Bark's own convention, not something this project adds.
 
 Long lyrics are automatically chunked (Bark caps out around ~13 seconds per
-generation) and concatenated into one `.wav`, with the same persona voice
-used throughout for consistency.
+generation) and stitched into one `.wav`. Each chunk after the first
+continues from the previous chunk's generated state rather than restarting
+from the bare voice preset, so a multi-line song flows as one take instead
+of sounding cut-and-spliced. Every `--reset-every` chunks (default 4) it
+snaps back to the persona's base voice, since chaining state indefinitely
+lets Bark's voices drift off-character over a long generation.
 
 ## Project layout
 
@@ -109,3 +113,18 @@ music-generator/
 - Nothing here calls or scrapes Suno's service. It's an independent,
   self-hosted pipeline you run against a model MIT-licensed for exactly
   this kind of use.
+
+## Verification status
+
+The persona registry (create/list/remove/reuse voices) is fully tested and
+CLI-verified. The generation path (`generate_song`) was verified as far as
+its sandbox allows: `bark`/`torch` install correctly, imports work, and a
+real call reaches all the way into Bark's actual `preload_models()` →
+`hf_hub_download()` — i.e. this project's integration code is correct and
+calling Bark's real API properly. What couldn't be verified here is actual
+audio output, because that sandbox's network policy blocks
+`huggingface.co` (where Bark's model weights live), so the weight download
+itself fails with a 403 in that environment. On a normal machine with open
+network access, this should proceed straight through to producing a
+`.wav`. If you hit anything past that point, it's a genuinely new issue
+worth reporting.

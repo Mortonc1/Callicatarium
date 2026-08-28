@@ -86,7 +86,9 @@ def _cmd_generate(args: argparse.Namespace) -> None:
         print("Provide --lyrics or --lyrics-file", file=sys.stderr)
         sys.exit(1)
 
-    out_path = generate_song(persona, lyrics, args.out, seed=args.seed)
+    out_path = generate_song(
+        persona, lyrics, args.out, seed=args.seed, continuity_reset_every=args.reset_every
+    )
     print(f"Wrote {out_path}")
 
 
@@ -132,6 +134,13 @@ def build_parser() -> argparse.ArgumentParser:
     g.add_argument("--lyrics-file", default="")
     g.add_argument("--out", required=True)
     g.add_argument("--seed", type=int, default=None)
+    g.add_argument(
+        "--reset-every",
+        type=int,
+        default=4,
+        dest="reset_every",
+        help="Snap back to the persona's base voice every N lyric chunks (0 disables resets)",
+    )
     g.set_defaults(func=_cmd_generate)
 
     return parser
