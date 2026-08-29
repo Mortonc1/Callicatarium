@@ -8,6 +8,7 @@ from pathlib import Path
 from .clone import save_cloned_persona
 from .personas import Persona, PersonaRegistry
 from .presets import CURATED_PRESETS
+from .licenses import COMMERCIAL_ONLY_ENV, CONDITIONAL, NO, YES, commercial_only, summary_rows
 from .song import SongStore
 
 
@@ -245,6 +246,20 @@ def _cmd_song_merge_sections(args: argparse.Namespace) -> None:
     print(f"Merged into one section. Regenerate it to render as a single take.")
 
 
+def _cmd_licenses(args: argparse.Namespace) -> None:
+    mark = {YES: "yes", CONDITIONAL: "conditional", NO: "NO"}
+    gate = "ON" if commercial_only() else "off"
+    print(f"Commercial-only gate: {gate}  (set {COMMERCIAL_ONLY_ENV}=1 to turn on)\n")
+    for m in summary_rows():
+        print(f"{m.name}")
+        print(f"  used for       : {m.used_for}")
+        print(f"  weights licence: {m.weights_license}")
+        print(f"  sell output?   : {mark[m.commercial_use]}")
+        print(f"  {m.notes}")
+        print(f"  {m.url}\n")
+    print("Not legal advice; licences change. Check the URLs before releasing commercially.")
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="musicgen-personas", description="Reusable-voice song generator")
     sub = parser.add_subparsers(dest="command", required=True)
@@ -421,6 +436,11 @@ def build_parser() -> argparse.ArgumentParser:
     s_merge.add_argument("section_ids", nargs="+", help="Two or more adjacent section ids")
     s_merge.add_argument("--label", default=None)
     s_merge.set_defaults(func=_cmd_song_merge_sections)
+
+    lic = sub.add_parser(
+        "licenses", help="Show each model's weights licence and whether you can sell the output"
+    )
+    lic.set_defaults(func=_cmd_licenses)
 
     return parser
 

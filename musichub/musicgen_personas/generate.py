@@ -16,6 +16,7 @@ from pathlib import Path
 
 import numpy as np
 
+from .licenses import assert_commercial_ok
 from .personas import Persona
 
 _SILENCE_SECONDS = 0.35
@@ -92,6 +93,8 @@ def generate_song(
     Every `continuity_reset_every` chunks this snaps back to the persona's
     base voice to stop it drifting off-character over a long song.
     """
+    assert_commercial_ok("bark")
+
     try:
         from bark import SAMPLE_RATE as BARK_SAMPLE_RATE
         from bark import generate_audio

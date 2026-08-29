@@ -18,6 +18,8 @@ from pathlib import Path
 
 import numpy as np
 
+from .licenses import assert_commercial_ok
+
 DEFAULT_MODEL = "facebook/musicgen-melody"
 MAX_SEGMENT_SECONDS = 30.0  # MusicGen's practical generation ceiling per call
 
@@ -36,6 +38,8 @@ def generate_melody_conditioned(
     so a long track can guide section-by-section rather than only from its
     opening.
     """
+    assert_commercial_ok("musicgen")
+
     try:
         import torchaudio
         from audiocraft.models import MusicGen

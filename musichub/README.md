@@ -272,6 +272,58 @@ default vocal-isolation path uses).
 - MusicGen's melody model generates **instrumental music** and does not
   sing. Vocals come from Bark separately, via the normal section pipeline.
 
+## Licensing: what you can sell
+
+Model *code* and model *weights* are often licensed differently, and it's the
+weights that decide whether you can commercially release what you generate.
+Run `musichub licenses` for the current table. As it stands:
+
+| Model | Used for | Weights licence | Sell the output? |
+|---|---|---|---|
+| Bark | vocals | MIT | yes |
+| Demucs | stem separation | MIT | yes |
+| Whisper | transcription | MIT | yes |
+| MusicGen | melody-conditioned instrumentals | CC-BY-NC 4.0 | **no** |
+
+So everything except the melody-guided instrumental feature is
+unambiguously commercial-safe. MusicGen is the single exception: Audiocraft's
+code is MIT but its weights are CC-BY-NC, and Meta's licence does not cover
+commercially releasing music the model generates.
+
+### Commercial-only mode
+
+Set `MUSICHUB_COMMERCIAL_ONLY=1` and any model whose weights forbid commercial
+use refuses to run, with an error naming the licence:
+
+```bash
+export MUSICHUB_COMMERCIAL_ONLY=1
+musichub song section-instrumental <song-id> <section-id>
+# NonCommercialModelError: MusicGen (facebook/musicgen-melody) is refused ...
+```
+
+The check runs *before* the dependency import, so you find out up front rather
+than after downloading several GB of weights. Unknown models are refused
+rather than assumed safe, so adding a new backend without recording its
+licence fails closed.
+
+With the gate on, every remaining feature -- personas, vocals, section
+editing, stems, transcription -- is MIT and free to use commercially.
+
+### If you want instrumentals commercially
+
+`musicgen_personas/melody.py` is a thin wrapper around one model. Swapping in
+a commercially-licensed alternative means reimplementing
+`generate_melody_conditioned` against it and adding an entry to
+`licenses.py`. Stable Audio Open is the obvious candidate and is already
+recorded in the table as `conditional`: Stability's Community Licence permits
+commercial use free below US$1M annual revenue, with an enterprise licence
+required above that. **That backend is not implemented here** -- the entry
+exists so the licence facts are recorded in one place.
+
+None of this is legal advice, and these terms change. `musichub licenses`
+prints the authoritative URL for each model; read them before releasing
+anything commercially.
+
 ## Project layout
 
 ```
@@ -281,6 +333,7 @@ musichub/
     web/                   # phone-friendly web UI (FastAPI + static page)
     song.py                 # song/section data model and CRUD (no bark needed)
     song_render.py          # renders sections and stitches them with a crossfade
+    licenses.py              # per-model weights licences + the commercial-only gate
     stems.py                 # Demucs wrapper: splits a mix into vocals/drums/bass/other
     transcribe.py             # Whisper wrapper: timestamped lyrics from a guide track
     melody.py                  # MusicGen wrapper: melody-conditioned instrumentals

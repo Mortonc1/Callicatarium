@@ -16,6 +16,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 from pathlib import Path
 
+from .licenses import assert_commercial_ok
+
 DEFAULT_MODEL = "base"
 
 
@@ -35,6 +37,8 @@ def transcribe(
     language: str | None = None,
 ) -> list[TranscriptSegment]:
     """Transcribe `audio_path` into timestamped segments."""
+    assert_commercial_ok("whisper")
+
     try:
         from faster_whisper import WhisperModel
     except ImportError as exc:

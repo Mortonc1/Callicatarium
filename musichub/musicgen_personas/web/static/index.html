@@ -591,6 +591,9 @@ function renderSongDetail() {
       ${s.ref_start === null || s.ref_start === undefined ? '' : `
         <details style="margin-top:10px;">
           <summary>Instrumental (guided by ${s.ref_start.toFixed(1)}–${(s.ref_end ?? s.ref_start).toFixed(1)}s of the guide track)</summary>
+          <div class="hint">Uses MusicGen, whose weights are CC-BY-NC &mdash; <strong>non-commercial only</strong>.
+            Vocals, stems and transcription are all MIT and fine to sell. Set
+            <code>MUSICHUB_COMMERCIAL_ONLY=1</code> to block this feature entirely.</div>
           <input type="text" class="instrumental-prompt" placeholder="e.g. moody synthwave, slow tempo" value="instrumental backing track">
           <button type="button" class="small gen-instrumental">Generate instrumental</button>
           <div class="instrumental-status status"></div>

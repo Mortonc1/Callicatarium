@@ -13,6 +13,8 @@ from __future__ import annotations
 import shutil
 from pathlib import Path
 
+from .licenses import assert_commercial_ok
+
 DEFAULT_MODEL = "htdemucs"  # 4 stems: vocals, drums, bass, other
 
 
@@ -22,6 +24,8 @@ def separate_stems(audio_path: str | Path, work_dir: str | Path, model: str = DE
     Returns {stem_name: path}, e.g. {"vocals": ..., "drums": ..., "bass": ..., "other": ...}.
     Caller owns `work_dir` and should clean it up once done with the paths.
     """
+    assert_commercial_ok("demucs")
+
     try:
         import demucs.separate
     except ImportError as exc:
