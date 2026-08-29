@@ -199,6 +199,20 @@
         <button type="button" id="add-section-btn">Add section</button>
         <div id="add-section-status" class="status"></div>
       </div>
+
+      <div class="card">
+        <h2>Stems</h2>
+        <div class="hint">Splits the full render into vocals/drums/bass/other so you can adjust
+          each independently, like separate tracks. Render the full song first.</div>
+        <button type="button" id="separate-stems-btn">Separate into stems</button>
+        <div id="stems-status" class="status"></div>
+        <div id="stems-list"></div>
+        <div id="stems-mix-controls" hidden>
+          <button type="button" id="mix-stems-btn" class="secondary" style="margin-top:8px;">Mix &amp; preview</button>
+          <div id="mix-status" class="status"></div>
+          <div id="mix-player"></div>
+        </div>
+      </div>
     </div>
   </div>
 
@@ -497,6 +511,101 @@ function renderSongDetail() {
     card.querySelector('.move-up').addEventListener('click', () => moveSection(sectionId, -1));
     card.querySelector('.move-down').addEventListener('click', () => moveSection(sectionId, 1));
   });
+
+  renderStems();
+}
+
+function renderStems() {
+  const song = currentSong;
+  const stemNames = Object.keys(song.stem_levels || {});
+  const listEl = $('stems-list');
+  const mixControls = $('stems-mix-controls');
+
+  if (!stemNames.length) {
+    listEl.innerHTML = '';
+    mixControls.hidden = true;
+    return;
+  }
+
+  mixControls.hidden = false;
+  listEl.innerHTML = stemNames.map(name => {
+    const level = song.stem_levels[name];
+    return `
+      <div class="section-card" data-stem-name="${name}">
+        <div class="section-head">
+          <strong>${name}</strong>
+          <label style="display:flex; align-items:center; gap:6px; font-size:0.85rem; color:var(--muted); margin:0;">
+            <input type="checkbox" class="stem-mute" style="width:auto; margin:0;" ${level.muted ? 'checked' : ''}>
+            Mute
+          </label>
+        </div>
+        <label>Gain: <span class="gain-value">${level.gain.toFixed(2)}</span></label>
+        <input type="range" class="stem-gain" min="0" max="2" step="0.05" value="${level.gain}" style="margin-bottom:8px;">
+        <audio controls src="/api/songs/${song.id}/stems/${name}/audio?ts=${Date.now()}"></audio>
+      </div>
+    `;
+  }).join('');
+
+  listEl.querySelectorAll('.section-card[data-stem-name]').forEach(card => {
+    const stemName = card.dataset.stemName;
+    const gainInput = card.querySelector('.stem-gain');
+    const gainLabel = card.querySelector('.gain-value');
+    const muteInput = card.querySelector('.stem-mute');
+
+    gainInput.addEventListener('input', () => { gainLabel.textContent = Number(gainInput.value).toFixed(2); });
+    gainInput.addEventListener('change', () => updateStemLevel(stemName, { gain: Number(gainInput.value) }));
+    muteInput.addEventListener('change', () => updateStemLevel(stemName, { muted: muteInput.checked }));
+  });
+}
+
+async function updateStemLevel(stemName, patch) {
+  currentSong = await api(`/api/songs/${currentSong.id}/stems/${stemName}`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(patch),
+  });
+}
+
+async function separateStems() {
+  if (!currentSong.has_full_render) {
+    $('stems-status').textContent = 'Render the full song first.';
+    return;
+  }
+  const btn = $('separate-stems-btn');
+  btn.disabled = true;
+  $('stems-status').textContent = 'Queued — this can take a while...';
+  try {
+    const { job_id } = await api(`/api/songs/${currentSong.id}/stems/separate`, { method: 'POST' });
+    await pollJob(job_id, {
+      onTick: (s) => { $('stems-status').textContent = s.status + '...'; },
+      onDone: async () => { $('stems-status').textContent = 'Done!'; btn.disabled = false; await refreshCurrentSong(); },
+      onError: (s) => { $('stems-status').textContent = 'Failed: ' + (s.error || 'unknown error'); btn.disabled = false; },
+    });
+  } catch (e) {
+    $('stems-status').textContent = e.message;
+    btn.disabled = false;
+  }
+}
+
+async function mixStems() {
+  const btn = $('mix-stems-btn');
+  btn.disabled = true;
+  $('mix-status').textContent = 'Mixing...';
+  try {
+    const { job_id } = await api(`/api/songs/${currentSong.id}/stems/mix`, { method: 'POST' });
+    await pollJob(job_id, {
+      onTick: (s) => { $('mix-status').textContent = s.status + '...'; },
+      onDone: () => {
+        $('mix-status').textContent = 'Done!';
+        btn.disabled = false;
+        $('mix-player').innerHTML = `<audio controls src="/api/songs/${currentSong.id}/stems/mix/audio?ts=${Date.now()}"></audio>`;
+      },
+      onError: (s) => { $('mix-status').textContent = 'Failed: ' + (s.error || 'unknown error'); btn.disabled = false; },
+    });
+  } catch (e) {
+    $('mix-status').textContent = e.message;
+    btn.disabled = false;
+  }
 }
 
 async function refreshCurrentSong() {
@@ -614,6 +723,8 @@ $('create-song-btn').addEventListener('click', createSong);
 $('add-section-btn').addEventListener('click', addSection);
 $('render-song-btn').addEventListener('click', renderFullSong);
 $('delete-song-btn').addEventListener('click', deleteSong);
+$('separate-stems-btn').addEventListener('click', separateStems);
+$('mix-stems-btn').addEventListener('click', mixStems);
 
 (async function init() {
   await Promise.all([loadPersonas(), loadPresets()]);

@@ -53,6 +53,8 @@ class Song:
     sections: list[Section] = field(default_factory=list)
     created_at: float = field(default_factory=time.time)
     updated_at: float = field(default_factory=time.time)
+    # {stem_name: {"gain": float, "muted": bool}}, populated by separate_song_stems.
+    stem_levels: dict[str, dict] = field(default_factory=dict)
     songs_dir: Path = field(default=DEFAULT_SONGS_DIR, repr=False, compare=False)
 
     @property
@@ -74,6 +76,7 @@ class Song:
             "updated_at": self.updated_at,
             "sections": [s.to_dict() for s in self.sections],
             "has_full_render": (self.dir / "full.wav").exists(),
+            "stem_levels": self.stem_levels,
         }
 
     @classmethod
@@ -85,6 +88,7 @@ class Song:
             created_at=data["created_at"],
             updated_at=data["updated_at"],
             sections=[Section.from_dict(s) for s in data["sections"]],
+            stem_levels=data.get("stem_levels", {}),
             songs_dir=songs_dir,
         )
 

@@ -167,6 +167,37 @@ with inline lyrics editing, per-section Regenerate, up/down reordering, add
 and remove, and a Render button for the stitched final track -- all from
 your phone.
 
+## Stems: independently adjustable vocals/drums/bass/other
+
+Bark only ever renders one mixed waveform -- there is no way to generate
+separate instrument tracks directly, so "multitrack" here means something
+specific: once a song is rendered to its final track, running
+[Demucs](https://github.com/facebookresearch/demucs) (Meta, MIT licensed)
+on that mix splits it into four stems -- vocals, drums, bass, other -- as
+independent, standard source separation. It's not the same as an AI that
+composed those parts separately, but it's a real, well-established
+technique for pulling a mix back apart, and it's what gets you actual
+per-track volume/mute control afterward.
+
+Each stem gets its own gain (0-2x, linear) and mute toggle; **Mix &
+preview** renders those settings down into a single `mix.wav` you can
+listen to and re-adjust. Separation only works on a song that's already
+been rendered (`song render` / the Render button) -- there's no per-section
+stem separation, this operates on the finished full track.
+
+```bash
+musichub song separate-stems <song-id>
+musichub song set-stem-level <song-id> vocals --gain 1.3
+musichub song set-stem-level <song-id> drums --mute
+musichub song mix-stems <song-id> --out output/custom_mix.wav
+```
+
+Requires `pip install -e ".[stems]"` (pulls in `demucs`). Separation quality
+on Bark-generated audio specifically hasn't been validated here -- Demucs is
+trained and tuned on real multitrack recordings, and how well it separates
+a Bark mix is an open question you'll answer the first time you actually
+run it.
+
 ## Project layout
 
 ```
@@ -176,15 +207,18 @@ musichub/
     web/                   # phone-friendly web UI (FastAPI + static page)
     song.py                 # song/section data model and CRUD (no bark needed)
     song_render.py          # renders sections and stitches them with a crossfade
+    stems.py                 # Demucs wrapper: splits a mix into vocals/drums/bass/other
+    song_stems.py             # song-level separate/gain/mute/mix on top of stems.py
     generate.py, personas.py, clone.py, presets.py
   personas/
     registry.json         # your saved personas (seeded with 8 starter voices)
     custom/                 # your cloned-voice .npz files (git-ignored)
-  songs/                    # song projects: sections + rendered audio (git-ignored)
+  songs/                    # song projects: sections, stems, rendered audio (git-ignored)
   output/                   # quick-clip generated songs (git-ignored)
   tests/                    # unit tests -- persona registry, chunking/continuity,
-                              # song/section CRUD, stitching, and the web API's job
-                              # pipeline (no GPU needed for any of it)
+                              # song/section CRUD, crossfade stitching, stem gain/mute/
+                              # mixing, and the web API's job pipeline (no GPU needed
+                              # for any of it)
 ```
 
 ## Notes and limitations
@@ -232,3 +266,18 @@ song, edited a section (confirmed it correctly flips to stale), and
 confirmed the page serves the new Song Projects tab. The only unverified
 step, same root cause as everywhere else in this project, is a section's
 actual Bark-rendered audio.
+
+Stems follow the same pattern. `demucs` installs and imports cleanly, and a
+real separation call was attempted against a synthetic test file: it
+reached all the way into Demucs' actual model-loading code and hit its
+real download call to `dl.fbaipublicfiles.com` -- i.e. the integration
+code is correct and calling Demucs' real API properly -- before hitting the
+same class of 403 as everywhere else in this project (that host isn't
+reachable from this sandbox either). Independent of that: gain/mute
+adjustment and mixing (`mix_stems`) are pure audio math with no Bark or
+Demucs dependency, and are fully tested against fabricated stem files,
+including real HTTP round-trips (create a song, write fake stems directly
+to disk, adjust gain over the API, submit a mix job, fetch the resulting
+audio) -- all of that is verified for real. What's specifically
+unconfirmed is Demucs' actual separation quality on Bark-generated audio,
+which needs that network access and, more importantly, real ears.

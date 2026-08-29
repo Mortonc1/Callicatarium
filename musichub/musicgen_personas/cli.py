@@ -170,6 +170,33 @@ def _cmd_song_render(args: argparse.Namespace) -> None:
     print(f"Wrote {out_path}")
 
 
+def _cmd_song_separate_stems(args: argparse.Namespace) -> None:
+    from .song_stems import separate_song_stems  # lazy: needs demucs/torch
+
+    store = SongStore()
+    song = store.get(args.song_id)
+    song = separate_song_stems(store, song)
+    print(f"Separated into {len(song.stem_levels)} stem(s): {', '.join(song.stem_levels)}")
+
+
+def _cmd_song_set_stem_level(args: argparse.Namespace) -> None:
+    from .song_stems import set_stem_level  # lazy: keep consistent, though this is pure JSON edit
+
+    muted = True if args.mute else (False if args.unmute else None)
+    store = SongStore()
+    song = store.get(args.song_id)
+    set_stem_level(store, song, args.stem_name, gain=args.gain, muted=muted)
+    print(f"Updated stem '{args.stem_name}'.")
+
+
+def _cmd_song_mix_stems(args: argparse.Namespace) -> None:
+    from .song_stems import mix_stems  # lazy: only needs scipy/numpy, but keep lazy for consistency
+
+    song = SongStore().get(args.song_id)
+    out_path = mix_stems(song, args.out)
+    print(f"Wrote {out_path}")
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="musicgen-personas", description="Reusable-voice song generator")
     sub = parser.add_subparsers(dest="command", required=True)
@@ -273,6 +300,25 @@ def build_parser() -> argparse.ArgumentParser:
     s_render.add_argument("song_id")
     s_render.add_argument("--out", required=True)
     s_render.set_defaults(func=_cmd_song_render)
+
+    s_stems = song_sub.add_parser(
+        "separate-stems", help="Split the full render into vocals/drums/bass/other stems"
+    )
+    s_stems.add_argument("song_id")
+    s_stems.set_defaults(func=_cmd_song_separate_stems)
+
+    s_stem_level = song_sub.add_parser("set-stem-level", help="Adjust one stem's gain or mute state")
+    s_stem_level.add_argument("song_id")
+    s_stem_level.add_argument("stem_name")
+    s_stem_level.add_argument("--gain", type=float, default=None, help="Linear gain multiplier, e.g. 0.5, 1.0, 2.0")
+    s_stem_level.add_argument("--mute", action="store_true")
+    s_stem_level.add_argument("--unmute", action="store_true")
+    s_stem_level.set_defaults(func=_cmd_song_set_stem_level)
+
+    s_mix = song_sub.add_parser("mix-stems", help="Render a custom mix from current stem gain/mute settings")
+    s_mix.add_argument("song_id")
+    s_mix.add_argument("--out", required=True)
+    s_mix.set_defaults(func=_cmd_song_mix_stems)
 
     return parser
 

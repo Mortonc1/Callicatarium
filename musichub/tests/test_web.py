@@ -225,3 +225,84 @@ def test_song_render_full_pipeline_without_bark(client, tmp_path):
     # decide whether to show a full-song player) must reflect this too.
     detail = client.get(f"/api/songs/{song_id}").json()
     assert detail["has_full_render"] is True
+
+
+def _fabricate_stems(song, names=("vocals", "drums", "bass", "other"), rate=24000, amplitude=0.2):
+    import numpy as np
+    from scipy.io.wavfile import write as write_wav
+
+    stems_dir = song.dir / "stems"
+    stems_dir.mkdir(parents=True, exist_ok=True)
+    for name in names:
+        write_wav(stems_dir / f"{name}.wav", rate, np.full(rate, amplitude, dtype=np.float32))
+    song.stem_levels = {name: {"gain": 1.0, "muted": False} for name in names}
+
+
+def test_stem_separation_job_lifecycle(client, monkeypatch):
+    # Real separation needs Demucs' model weights over the network -- same
+    # class of dependency as Bark, and just as undesirable in a fast unit
+    # test. What's under test here is this project's own job wiring, so the
+    # separation call itself is mocked to fail fast.
+    def _fail_to_separate(store, song):
+        raise RuntimeError("demucs unavailable in test environment")
+
+    monkeypatch.setattr("musicgen_personas.song_stems.separate_song_stems", _fail_to_separate)
+
+    client.post("/api/personas", json={"name": "AriaS", "voice": "v2/en_speaker_9"})
+    song = client.post("/api/songs", json={"title": "Song", "persona": "AriaS", "lyrics": "verse"}).json()
+
+    res = client.post(f"/api/songs/{song['id']}/stems/separate")
+    assert res.status_code == 200
+    status = _wait_for_job(client, res.json()["job_id"])
+    assert status["status"] == "error"
+    assert "demucs unavailable" in status["error"]
+
+
+def test_stem_level_update_and_audio_serving(client):
+    from musicgen_personas.song import SongStore
+
+    client.post("/api/personas", json={"name": "AriaT", "voice": "v2/en_speaker_9"})
+    song_resp = client.post("/api/songs", json={"title": "Song", "persona": "AriaT", "lyrics": "verse"}).json()
+    song_id = song_resp["id"]
+
+    store = SongStore()
+    song = store.get(song_id)
+    _fabricate_stems(song)
+    store.save(song)
+
+    updated = client.put(f"/api/songs/{song_id}/stems/vocals", json={"gain": 0.5, "muted": True})
+    assert updated.status_code == 200
+    assert updated.json()["stem_levels"]["vocals"] == {"gain": 0.5, "muted": True}
+
+    missing = client.put(f"/api/songs/{song_id}/stems/banjo", json={"gain": 1.0})
+    assert missing.status_code == 404
+
+    audio_res = client.get(f"/api/songs/{song_id}/stems/vocals/audio")
+    assert audio_res.status_code == 200
+
+    no_such_stem = client.get(f"/api/songs/{song_id}/stems/banjo/audio")
+    assert no_such_stem.status_code == 404
+
+
+def test_stem_mix_job_and_audio(client):
+    from musicgen_personas.song import SongStore
+
+    client.post("/api/personas", json={"name": "AriaU", "voice": "v2/en_speaker_9"})
+    song_resp = client.post("/api/songs", json={"title": "Song", "persona": "AriaU", "lyrics": "verse"}).json()
+    song_id = song_resp["id"]
+
+    store = SongStore()
+    song = store.get(song_id)
+    _fabricate_stems(song)
+    store.save(song)
+
+    no_mix_yet = client.get(f"/api/songs/{song_id}/stems/mix/audio")
+    assert no_mix_yet.status_code == 404
+
+    res = client.post(f"/api/songs/{song_id}/stems/mix")
+    assert res.status_code == 200
+    status = _wait_for_job(client, res.json()["job_id"])
+    assert status["status"] == "done"
+
+    mix_res = client.get(f"/api/songs/{song_id}/stems/mix/audio")
+    assert mix_res.status_code == 200

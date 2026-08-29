@@ -4,7 +4,7 @@ This still runs the real Bark model, so it needs to run on a machine with
 real compute (ideally a GPU) and network access -- your phone is just the
 client, talking to this server over the browser. Start it with:
 
-    musicgen-personas-web
+    musichub-web
 
 then open http://<that machine's LAN IP>:8000 from your phone (same wifi),
 or point a tunnel (e.g. Tailscale, ngrok) at it for access from anywhere.
@@ -92,6 +92,11 @@ class ReorderSectionsRequest(BaseModel):
 
 class RegenerateSectionRequest(BaseModel):
     seed: Optional[int] = None
+
+
+class SetStemLevelRequest(BaseModel):
+    gain: Optional[float] = None
+    muted: Optional[bool] = None
 
 
 @app.get("/", response_class=HTMLResponse)
@@ -386,6 +391,112 @@ def song_audio(song_id: str):
     if not full_path.exists():
         raise HTTPException(status_code=404, detail="Song hasn't been rendered yet")
     return FileResponse(full_path, media_type="audio/wav", filename=f"{song.title}.wav")
+
+
+# ---- Stems: post-hoc multitrack separation of a song's full render ----
+
+
+def _run_stem_separation(job_id: str, song_id: str) -> None:
+    from ..song_stems import separate_song_stems
+
+    job = _jobs[job_id]
+    job["status"] = "running"
+    try:
+        with _songs_lock:
+            store = SongStore()
+            song = store.get(song_id)
+        separate_song_stems(store, song)
+        job["status"] = "done"
+    except Exception as exc:  # noqa: BLE001 -- surfaced to the client via /api/jobs/{id}
+        job["status"] = "error"
+        job["error"] = str(exc)
+
+
+@app.post("/api/songs/{song_id}/stems/separate")
+def separate_stems_endpoint(song_id: str):
+    with _songs_lock:
+        try:
+            song = SongStore().get(song_id)
+        except KeyError as exc:
+            raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+    job_id = _new_job(f"{song.title} (stem separation)")
+    _executor.submit(_run_stem_separation, job_id, song_id)
+    return {"job_id": job_id}
+
+
+def _run_stem_mix(job_id: str, song_id: str) -> None:
+    from ..song_stems import mix_stems
+
+    job = _jobs[job_id]
+    job["status"] = "running"
+    try:
+        with _songs_lock:
+            song = SongStore().get(song_id)
+        mix_stems(song, song.dir / "mix.wav")
+        job["status"] = "done"
+    except Exception as exc:  # noqa: BLE001 -- surfaced to the client via /api/jobs/{id}
+        job["status"] = "error"
+        job["error"] = str(exc)
+
+
+@app.post("/api/songs/{song_id}/stems/mix")
+def mix_stems_endpoint(song_id: str):
+    with _songs_lock:
+        try:
+            song = SongStore().get(song_id)
+        except KeyError as exc:
+            raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+    job_id = _new_job(f"{song.title} (stem mix)")
+    _executor.submit(_run_stem_mix, job_id, song_id)
+    return {"job_id": job_id}
+
+
+# NOTE: this must be registered before the generic /stems/{stem_name}/audio
+# route below -- both match "/stems/mix/audio", and FastAPI/Starlette try
+# routes in registration order, so the more specific one has to come first
+# or "mix" gets swallowed as a stem_name and this route is never reached.
+@app.get("/api/songs/{song_id}/stems/mix/audio")
+def stem_mix_audio(song_id: str):
+    with _songs_lock:
+        try:
+            song = SongStore().get(song_id)
+        except KeyError as exc:
+            raise HTTPException(status_code=404, detail=str(exc)) from exc
+    mix_path = song.dir / "mix.wav"
+    if not mix_path.exists():
+        raise HTTPException(status_code=404, detail="No mix rendered yet")
+    return FileResponse(mix_path, media_type="audio/wav", filename=f"{song.title}_mix.wav")
+
+
+@app.put("/api/songs/{song_id}/stems/{stem_name}")
+def update_stem_level(song_id: str, stem_name: str, req: SetStemLevelRequest):
+    from ..song_stems import set_stem_level
+
+    with _songs_lock:
+        store = SongStore()
+        try:
+            song = store.get(song_id)
+            set_stem_level(store, song, stem_name, gain=req.gain, muted=req.muted)
+        except KeyError as exc:
+            raise HTTPException(status_code=404, detail=str(exc)) from exc
+        return song.to_dict()
+
+
+@app.get("/api/songs/{song_id}/stems/{stem_name}/audio")
+def stem_audio(song_id: str, stem_name: str):
+    with _songs_lock:
+        try:
+            song = SongStore().get(song_id)
+        except KeyError as exc:
+            raise HTTPException(status_code=404, detail=str(exc)) from exc
+    if stem_name not in song.stem_levels:
+        raise HTTPException(status_code=404, detail=f"No stem '{stem_name}'")
+    stem_path = song.dir / "stems" / f"{stem_name}.wav"
+    if not stem_path.exists():
+        raise HTTPException(status_code=404, detail="Stem file missing on disk")
+    return FileResponse(stem_path, media_type="audio/wav")
 
 
 def run() -> None:
