@@ -120,20 +120,71 @@ still needs the `persona save-clone` command since that involves a file on
 disk. Generation runs one job at a time in the background so the page stays
 responsive while Bark works.
 
+## Song projects: editing one section without wrecking the rest
+
+Feeding a whole song through as one lyrics blob means Bark's own internal
+chunking decides where the boundaries fall -- so changing a single word can
+shift a chunk boundary and regenerate several seconds of audio you liked
+and didn't touch. A **song project** fixes this by making the boundaries
+yours: a song is an ordered list of independently-editable **sections**
+(verse, chorus, bridge, ...), each rendered to its own audio file.
+
+- Editing a section's lyrics only marks *that* section stale -- every other
+  section's audio is untouched on disk until you explicitly ask to
+  regenerate it.
+- **Regenerate** re-renders exactly one section, independently, from the
+  persona's base voice.
+- **Render** stitches the current audio for every section into one final
+  track, with a short crossfade at each join so splices don't click.
+  It refuses to run while any section is stale, so you always know whether
+  what you're about to render matches the lyrics on screen.
+
+There's a real tradeoff here versus the single-call `generate` path: the
+old path chains Bark's generated state across chunks for extra flow within
+one generation, but that chaining is exactly what makes editing fragile
+(regenerating an earlier chunk would ripple through everything after it).
+Sections deliberately don't chain across each other for that reason --
+each one is a clean, independent, re-editable unit, at a small cost to
+inter-section flow.
+
+CLI:
+
+```bash
+musichub song create --title "Midnight Drive" --persona Aria \
+  --lyrics "$(printf 'verse line one\nverse line two\n\nchorus line one\nchorus line two')"
+musichub song list
+musichub song show <song-id>
+musichub song edit-section <song-id> <section-id> --lyrics "verse line one, changed"
+musichub song regenerate-section <song-id> <section-id>
+musichub song add-section <song-id> --label Bridge --lyrics "bridge lyrics" --position 2
+musichub song reorder <song-id> <section-id-1> <section-id-2> ...
+musichub song remove-section <song-id> <section-id>
+musichub song render <song-id> --out output/midnight_drive.wav
+```
+
+The web UI's **Song Projects** tab covers the same workflow: a section list
+with inline lyrics editing, per-section Regenerate, up/down reordering, add
+and remove, and a Render button for the stitched final track -- all from
+your phone.
+
 ## Project layout
 
 ```
 musichub/
   musicgen_personas/
-    cli.py               # command-line interface
-    web/                  # phone-friendly web UI (FastAPI + static page)
+    cli.py                # command-line interface
+    web/                   # phone-friendly web UI (FastAPI + static page)
+    song.py                 # song/section data model and CRUD (no bark needed)
+    song_render.py          # renders sections and stitches them with a crossfade
     generate.py, personas.py, clone.py, presets.py
   personas/
-    registry.json        # your saved personas (seeded with 8 starter voices)
-    custom/                # your cloned-voice .npz files (git-ignored)
-  output/                  # generated songs (git-ignored)
-  tests/                   # unit tests -- persona registry, chunking/continuity,
-                            # and the web API's job pipeline (no GPU needed for any of it)
+    registry.json         # your saved personas (seeded with 8 starter voices)
+    custom/                 # your cloned-voice .npz files (git-ignored)
+  songs/                    # song projects: sections + rendered audio (git-ignored)
+  output/                   # quick-clip generated songs (git-ignored)
+  tests/                    # unit tests -- persona registry, chunking/continuity,
+                              # song/section CRUD, stitching, and the web API's job
+                              # pipeline (no GPU needed for any of it)
 ```
 
 ## Notes and limitations
@@ -169,3 +220,15 @@ persona/preset APIs return real data, and a submitted generation job
 correctly moves through queued → running → a terminal state visible from
 the page. The one thing it inherits, unverified for the same reason as
 above, is real audio at the end of that pipeline.
+
+Song projects are fully tested without needing Bark at all for the parts
+that don't need it: section CRUD (create/edit/add/remove/reorder,
+staleness tracking) and the crossfade-stitching logic in `render_song` are
+covered directly, including a full render exercised end-to-end against
+fabricated section audio (real `write_wav`/`read_wav` round-trips, not
+mocks) to confirm the stitched output has the right length and plays back.
+The song API was also hit over real HTTP the same way as above: created a
+song, edited a section (confirmed it correctly flips to stale), and
+confirmed the page serves the new Song Projects tab. The only unverified
+step, same root cause as everywhere else in this project, is a section's
+actual Bark-rendered audio.

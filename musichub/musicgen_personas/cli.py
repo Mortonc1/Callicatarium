@@ -8,6 +8,7 @@ from pathlib import Path
 from .clone import save_cloned_persona
 from .personas import Persona, PersonaRegistry
 from .presets import CURATED_PRESETS
+from .song import SongStore
 
 
 def _cmd_persona_list(args: argparse.Namespace) -> None:
@@ -92,6 +93,83 @@ def _cmd_generate(args: argparse.Namespace) -> None:
     print(f"Wrote {out_path}")
 
 
+def _cmd_song_create(args: argparse.Namespace) -> None:
+    store = SongStore()
+    lyrics = Path(args.lyrics_file).read_text() if args.lyrics_file else args.lyrics
+    if not lyrics:
+        print("Provide --lyrics or --lyrics-file", file=sys.stderr)
+        sys.exit(1)
+    song = store.create(args.title, args.persona, lyrics)
+    print(f"Created song '{song.title}' ({song.id}) with {len(song.sections)} section(s):")
+    for s in song.sections:
+        print(f"  {s.id}  {s.label}")
+
+
+def _cmd_song_list(args: argparse.Namespace) -> None:
+    songs = SongStore().list()
+    if not songs:
+        print("No songs yet. Run 'song create' to start one.")
+        return
+    for song in songs:
+        stale = sum(1 for s in song.sections if s.is_stale)
+        print(f"{song.id}  {song.title:30}  persona={song.persona_name}  sections={len(song.sections)}  stale={stale}")
+
+
+def _cmd_song_show(args: argparse.Namespace) -> None:
+    song = SongStore().get(args.song_id)
+    print(f"{song.title} ({song.id})  persona={song.persona_name}")
+    for s in song.sections:
+        flag = "STALE" if s.is_stale else "ok"
+        print(f"  [{flag:5}] {s.id}  {s.label}\n          {s.lyrics}")
+
+
+def _cmd_song_edit_section(args: argparse.Namespace) -> None:
+    store = SongStore()
+    song = store.get(args.song_id)
+    lyrics = Path(args.lyrics_file).read_text() if args.lyrics_file else args.lyrics
+    store.update_section_lyrics(song, args.section_id, lyrics)
+    print(f"Updated section '{args.section_id}'. It's now stale -- run 'song regenerate-section' to render it.")
+
+
+def _cmd_song_add_section(args: argparse.Namespace) -> None:
+    store = SongStore()
+    song = store.get(args.song_id)
+    lyrics = Path(args.lyrics_file).read_text() if args.lyrics_file else args.lyrics
+    store.add_section(song, args.label, lyrics, position=args.position)
+    print(f"Added section '{args.label}' to '{song.title}'.")
+
+
+def _cmd_song_remove_section(args: argparse.Namespace) -> None:
+    store = SongStore()
+    song = store.get(args.song_id)
+    store.remove_section(song, args.section_id)
+    print(f"Removed section '{args.section_id}' from '{song.title}'.")
+
+
+def _cmd_song_reorder(args: argparse.Namespace) -> None:
+    store = SongStore()
+    song = store.get(args.song_id)
+    store.reorder_sections(song, args.section_ids)
+    print(f"Reordered sections for '{song.title}'.")
+
+
+def _cmd_song_regenerate_section(args: argparse.Namespace) -> None:
+    from .song_render import regenerate_section  # lazy: needs bark/torch
+
+    store = SongStore()
+    song = store.get(args.song_id)
+    regenerate_section(store, song, args.section_id, seed=args.seed)
+    print(f"Regenerated section '{args.section_id}'.")
+
+
+def _cmd_song_render(args: argparse.Namespace) -> None:
+    from .song_render import render_song  # lazy: only needs scipy/numpy, but keep lazy for consistency
+
+    song = SongStore().get(args.song_id)
+    out_path = render_song(song, args.out)
+    print(f"Wrote {out_path}")
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="musicgen-personas", description="Reusable-voice song generator")
     sub = parser.add_subparsers(dest="command", required=True)
@@ -142,6 +220,59 @@ def build_parser() -> argparse.ArgumentParser:
         help="Snap back to the persona's base voice every N lyric chunks (0 disables resets)",
     )
     g.set_defaults(func=_cmd_generate)
+
+    song_parser = sub.add_parser("song", help="Build a song as independently-editable sections")
+    song_sub = song_parser.add_subparsers(dest="song_command", required=True)
+
+    s_create = song_sub.add_parser("create", help="Create a song, splitting lyrics into sections on blank lines")
+    s_create.add_argument("--title", required=True)
+    s_create.add_argument("--persona", required=True)
+    s_create.add_argument("--lyrics", default="")
+    s_create.add_argument("--lyrics-file", default="")
+    s_create.set_defaults(func=_cmd_song_create)
+
+    s_list = song_sub.add_parser("list", help="List songs")
+    s_list.set_defaults(func=_cmd_song_list)
+
+    s_show = song_sub.add_parser("show", help="Show a song's sections")
+    s_show.add_argument("song_id")
+    s_show.set_defaults(func=_cmd_song_show)
+
+    s_edit = song_sub.add_parser("edit-section", help="Change a section's lyrics (marks it stale)")
+    s_edit.add_argument("song_id")
+    s_edit.add_argument("section_id")
+    s_edit.add_argument("--lyrics", default="")
+    s_edit.add_argument("--lyrics-file", default="")
+    s_edit.set_defaults(func=_cmd_song_edit_section)
+
+    s_add = song_sub.add_parser("add-section", help="Add a new section")
+    s_add.add_argument("song_id")
+    s_add.add_argument("--label", required=True)
+    s_add.add_argument("--lyrics", default="")
+    s_add.add_argument("--lyrics-file", default="")
+    s_add.add_argument("--position", type=int, default=None, help="0-based insert index; default appends")
+    s_add.set_defaults(func=_cmd_song_add_section)
+
+    s_remove = song_sub.add_parser("remove-section", help="Delete a section")
+    s_remove.add_argument("song_id")
+    s_remove.add_argument("section_id")
+    s_remove.set_defaults(func=_cmd_song_remove_section)
+
+    s_reorder = song_sub.add_parser("reorder", help="Reorder sections")
+    s_reorder.add_argument("song_id")
+    s_reorder.add_argument("section_ids", nargs="+", help="All section ids in the new order")
+    s_reorder.set_defaults(func=_cmd_song_reorder)
+
+    s_regen = song_sub.add_parser("regenerate-section", help="Render (or re-render) exactly one section")
+    s_regen.add_argument("song_id")
+    s_regen.add_argument("section_id")
+    s_regen.add_argument("--seed", type=int, default=None)
+    s_regen.set_defaults(func=_cmd_song_regenerate_section)
+
+    s_render = song_sub.add_parser("render", help="Stitch all sections into one final track")
+    s_render.add_argument("song_id")
+    s_render.add_argument("--out", required=True)
+    s_render.set_defaults(func=_cmd_song_render)
 
     return parser
 
