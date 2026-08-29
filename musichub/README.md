@@ -167,6 +167,38 @@ with inline lyrics editing, per-section Regenerate, up/down reordering, add
 and remove, and a Render button for the stitched final track -- all from
 your phone.
 
+### Choosing your granularity per edit
+
+Section size isn't fixed at creation. Split a section down when something
+small needs changing, and merge back afterwards:
+
+```bash
+musichub song split-section <song-id> <section-id> --by lines
+musichub song split-section <song-id> <section-id> --by words
+musichub song edit-section <song-id> <piece-id> --lyrics "forever"
+musichub song merge-sections <song-id> <id-1> <id-2> ... --label "Line 1"
+```
+
+Words rejoin with spaces and lines with newlines, so a split/edit/merge
+round-trip gives you back the line with only the word you changed
+different. In the web UI each section has **Split by line** / **Split by
+word** buttons and a `merge` checkbox; tick two or more adjacent sections
+and a merge button appears.
+
+The tradeoff is real and unavoidable: each section is generated as its own
+standalone utterance, so finer sections mean more surgical edits but weaker
+flow across the joins. A lone word regenerated on its own gets its own
+pitch and timing and usually will *not* blend back into the middle of a
+sung phrase -- a crossfade can't fix that. **Line-level is the practical
+floor for most edits.** Word-level is there because sometimes you know
+better; the intended use is to split down, fix the word, merge back, and
+regenerate the whole line as one take.
+
+Splitting a rendered section discards its audio (that recording no longer
+corresponds to any one piece), so the pieces start unrendered. Reference
+timing from a guide track is divided across them proportionally, so each
+piece still knows its slice for instrumental conditioning.
+
 ## Stems: independently adjustable vocals/drums/bass/other
 
 Bark only ever renders one mixed waveform -- there is no way to generate

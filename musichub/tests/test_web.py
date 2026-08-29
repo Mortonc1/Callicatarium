@@ -372,3 +372,51 @@ def test_section_instrumental_job_and_audio(client, monkeypatch):
 
     audio = client.get(f"/api/songs/{song['id']}/sections/{section_id}/instrumental/audio")
     assert audio.status_code == 200
+
+
+def test_split_and_merge_sections_via_api(client):
+    client.post("/api/personas", json={"name": "AriaSp", "voice": "v2/en_speaker_9"})
+    song = client.post(
+        "/api/songs", json={"title": "Song", "persona": "AriaSp", "lyrics": "hold the line tonight"}
+    ).json()
+    section_id = song["sections"][0]["id"]
+
+    split = client.post(
+        f"/api/songs/{song['id']}/sections/{section_id}/split", json={"granularity": "words"}
+    )
+    assert split.status_code == 200
+    pieces = split.json()["sections"]
+    assert [s["lyrics"] for s in pieces] == ["hold", "the", "line", "tonight"]
+
+    # change one word, then merge back -- the line should read correctly
+    client.put(f"/api/songs/{song['id']}/sections/{pieces[3]['id']}", json={"lyrics": "forever"})
+    merged = client.post(
+        f"/api/songs/{song['id']}/sections/merge",
+        json={"section_ids": [s["id"] for s in pieces]},
+    )
+    assert merged.status_code == 200
+    assert merged.json()["sections"][0]["lyrics"] == "hold the line forever"
+
+
+def test_split_unsplittable_returns_400(client):
+    client.post("/api/personas", json={"name": "AriaSp2", "voice": "v2/en_speaker_9"})
+    song = client.post(
+        "/api/songs", json={"title": "Song", "persona": "AriaSp2", "lyrics": "single"}
+    ).json()
+    res = client.post(
+        f"/api/songs/{song['id']}/sections/{song['sections'][0]['id']}/split",
+        json={"granularity": "lines"},
+    )
+    assert res.status_code == 400
+
+
+def test_merge_non_adjacent_returns_400(client):
+    client.post("/api/personas", json={"name": "AriaSp3", "voice": "v2/en_speaker_9"})
+    song = client.post(
+        "/api/songs", json={"title": "Song", "persona": "AriaSp3", "lyrics": "a\n\nb\n\nc"}
+    ).json()
+    ids = [s["id"] for s in song["sections"]]
+    res = client.post(
+        f"/api/songs/{song['id']}/sections/merge", json={"section_ids": [ids[0], ids[2]]}
+    )
+    assert res.status_code == 400

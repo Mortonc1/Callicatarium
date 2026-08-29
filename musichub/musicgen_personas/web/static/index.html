@@ -218,7 +218,15 @@
 
       <div class="card">
         <h2>Sections</h2>
+        <div class="hint">Split a section down when you need to change something small &mdash;
+          regenerating a piece only touches that piece. Merge back afterwards to render the
+          line as one continuous take. Word-level pieces generate in isolation and often
+          don't blend with their neighbours; line-level is usually the practical floor.</div>
         <div id="sections-list"></div>
+        <div id="merge-bar" hidden style="margin-top:10px;">
+          <button type="button" class="secondary" id="merge-btn">Merge <span id="merge-count">0</span> selected sections</button>
+          <div id="merge-status" class="status"></div>
+        </div>
       </div>
 
       <div class="card">
@@ -571,6 +579,13 @@ function renderSongDetail() {
         <button type="button" class="small regenerate">Regenerate</button>
         <button type="button" class="small danger remove-section">Remove</button>
       </div>
+      <div class="btn-row">
+        <button type="button" class="small secondary split-lines">Split by line</button>
+        <button type="button" class="small secondary split-words">Split by word</button>
+        <label style="display:flex; align-items:center; gap:6px; font-size:0.85rem; color:var(--muted); margin:0; flex:0 0 auto;">
+          <input type="checkbox" class="merge-pick" style="width:auto; margin:0;"> merge
+        </label>
+      </div>
       <div class="section-status status"></div>
       ${s.is_stale ? '' : `<audio controls src="/api/songs/${song.id}/sections/${s.id}/audio?ts=${Date.now()}"></audio>`}
       ${s.ref_start === null || s.ref_start === undefined ? '' : `
@@ -594,7 +609,11 @@ function renderSongDetail() {
     card.querySelector('.move-down').addEventListener('click', () => moveSection(sectionId, 1));
     const instrBtn = card.querySelector('.gen-instrumental');
     if (instrBtn) instrBtn.addEventListener('click', () => generateInstrumental(sectionId, card));
+    card.querySelector('.split-lines').addEventListener('click', () => splitSection(sectionId, 'lines', card));
+    card.querySelector('.split-words').addEventListener('click', () => splitSection(sectionId, 'words', card));
+    card.querySelector('.merge-pick').addEventListener('change', updateMergeBar);
   });
+  updateMergeBar();
 
   renderStems();
 }
@@ -739,6 +758,57 @@ async function regenerateSection(sectionId, card) {
   }
 }
 
+function pickedForMerge() {
+  return [...$('sections-list').querySelectorAll('.section-card')]
+    .filter(c => c.querySelector('.merge-pick')?.checked)
+    .map(c => c.dataset.sectionId);
+}
+
+function updateMergeBar() {
+  const picked = pickedForMerge();
+  const bar = $('merge-bar');
+  bar.hidden = picked.length < 2;
+  if (!bar.hidden) $('merge-count').textContent = picked.length;
+}
+
+async function splitSection(sectionId, granularity, card) {
+  const statusEl = card.querySelector('.section-status');
+  statusEl.textContent = 'Splitting...';
+  try {
+    // Save any pending lyrics edit first, so the split works on what's on screen.
+    await api(`/api/songs/${currentSong.id}/sections/${sectionId}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ lyrics: card.querySelector('.section-lyrics').value }),
+    });
+    currentSong = await api(`/api/songs/${currentSong.id}/sections/${sectionId}/split`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ granularity }),
+    });
+    renderSongDetail();
+  } catch (e) {
+    statusEl.textContent = e.message;
+  }
+}
+
+async function mergePicked() {
+  const ids = pickedForMerge();
+  if (ids.length < 2) return;
+  $('merge-status').textContent = 'Merging...';
+  try {
+    currentSong = await api(`/api/songs/${currentSong.id}/sections/merge`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ section_ids: ids }),
+    });
+    $('merge-status').textContent = '';
+    renderSongDetail();
+  } catch (e) {
+    $('merge-status').textContent = e.message;
+  }
+}
+
 async function generateInstrumental(sectionId, card) {
   const statusEl = card.querySelector('.instrumental-status');
   const btn = card.querySelector('.gen-instrumental');
@@ -833,6 +903,7 @@ $('delete-song-btn').addEventListener('click', deleteSong);
 $('separate-stems-btn').addEventListener('click', separateStems);
 $('mix-stems-btn').addEventListener('click', mixStems);
 $('from-reference-btn').addEventListener('click', createSongFromReference);
+$('merge-btn').addEventListener('click', mergePicked);
 
 (async function init() {
   await Promise.all([loadPersonas(), loadPresets()]);

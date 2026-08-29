@@ -100,6 +100,15 @@ class SetStemLevelRequest(BaseModel):
     muted: Optional[bool] = None
 
 
+class SplitSectionRequest(BaseModel):
+    granularity: str = "lines"
+
+
+class MergeSectionsRequest(BaseModel):
+    section_ids: list[str]
+    label: Optional[str] = None
+
+
 class SectionInstrumentalRequest(BaseModel):
     prompt: str = "instrumental backing track"
     duration: Optional[float] = None
@@ -285,6 +294,36 @@ def add_section(song_id: str, req: AddSectionRequest):
         except KeyError as exc:
             raise HTTPException(status_code=404, detail=str(exc)) from exc
         store.add_section(song, req.label, req.lyrics, position=req.position)
+        return song.to_dict()
+
+
+# Registered before the generic /sections/{section_id} routes so "merge"
+# isn't swallowed as a section id.
+@app.post("/api/songs/{song_id}/sections/merge")
+def merge_sections_endpoint(song_id: str, req: MergeSectionsRequest):
+    with _songs_lock:
+        store = SongStore()
+        try:
+            song = store.get(song_id)
+            store.merge_sections(song, req.section_ids, label=req.label)
+        except KeyError as exc:
+            raise HTTPException(status_code=404, detail=str(exc)) from exc
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        return song.to_dict()
+
+
+@app.post("/api/songs/{song_id}/sections/{section_id}/split")
+def split_section_endpoint(song_id: str, section_id: str, req: SplitSectionRequest):
+    with _songs_lock:
+        store = SongStore()
+        try:
+            song = store.get(song_id)
+            store.split_section(song, section_id, granularity=req.granularity)
+        except KeyError as exc:
+            raise HTTPException(status_code=404, detail=str(exc)) from exc
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
         return song.to_dict()
 
 

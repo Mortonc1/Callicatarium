@@ -34,6 +34,9 @@ class Section:
     ref_start: float | None = None
     ref_end: float | None = None
     instrumental_file: str | None = None  # melody-conditioned backing, if generated
+    # How this section was carved out, when it came from split_section --
+    # lets merge_sections rejoin words with spaces and lines with newlines.
+    split_kind: str | None = None
 
     @property
     def is_stale(self) -> bool:
@@ -174,6 +177,108 @@ class SongStore:
             song.sections.append(section)
         else:
             song.sections.insert(position, section)
+        self.save(song)
+        return song
+
+    def split_section(self, song: Song, section_id: str, granularity: str = "lines") -> Song:
+        """Replace one section with several smaller ones.
+
+        `granularity` is "lines" (one section per line) or "words" (one per
+        word). Splitting finer makes edits more surgical -- regenerating one
+        word touches only that word -- at the cost of flow, since each
+        section is generated as its own standalone utterance. Choose per
+        edit: split down to fix something, merge back for a smoother take.
+
+        Reference timing, when present, is divided across the new sections
+        in proportion to their text length, so each still knows roughly
+        which slice of a guide track it came from.
+        """
+        if granularity not in ("lines", "words"):
+            raise ValueError(f"granularity must be 'lines' or 'words', got {granularity!r}")
+
+        index = next((i for i, s in enumerate(song.sections) if s.id == section_id), None)
+        if index is None:
+            raise KeyError(f"No section '{section_id}' in song '{song.title}'")
+        section = song.sections[index]
+
+        if granularity == "lines":
+            pieces = [ln.strip() for ln in section.lyrics.splitlines() if ln.strip()]
+        else:
+            pieces = section.lyrics.split()
+        if len(pieces) <= 1:
+            raise ValueError(f"Section '{section.label}' can't be split any further by {granularity}")
+
+        total_chars = sum(len(p) for p in pieces) or 1
+        span = None
+        if section.ref_start is not None and section.ref_end is not None:
+            span = section.ref_end - section.ref_start
+
+        new_sections = []
+        consumed = 0
+        for i, piece in enumerate(pieces):
+            ref_start = ref_end = None
+            if span is not None:
+                ref_start = section.ref_start + span * (consumed / total_chars)
+                ref_end = section.ref_start + span * ((consumed + len(piece)) / total_chars)
+            consumed += len(piece)
+            new_sections.append(
+                Section(
+                    id=uuid.uuid4().hex[:8],
+                    label=f"{section.label}.{i + 1}",
+                    lyrics=piece,
+                    seed=section.seed,
+                    split_kind=granularity,
+                    ref_start=ref_start,
+                    ref_end=ref_end,
+                )
+            )
+
+        # The old section's rendered audio no longer corresponds to any one
+        # new section, so drop it; the pieces start stale.
+        if section.audio_file:
+            (song.dir / section.audio_file).unlink(missing_ok=True)
+
+        song.sections[index : index + 1] = new_sections
+        self.save(song)
+        return song
+
+    def merge_sections(self, song: Song, section_ids: list[str], label: str | None = None) -> Song:
+        """Merge adjacent sections back into one, so it regenerates as a single take."""
+        if len(section_ids) < 2:
+            raise ValueError("Merging needs at least two sections")
+
+        positions = []
+        for sid in section_ids:
+            pos = next((i for i, s in enumerate(song.sections) if s.id == sid), None)
+            if pos is None:
+                raise KeyError(f"No section '{sid}' in song '{song.title}'")
+            positions.append(pos)
+        positions.sort()
+        if positions != list(range(positions[0], positions[0] + len(positions))):
+            raise ValueError("Only adjacent sections can be merged")
+
+        merged_from = [song.sections[p] for p in positions]
+        ref_starts = [s.ref_start for s in merged_from if s.ref_start is not None]
+        ref_ends = [s.ref_end for s in merged_from if s.ref_end is not None]
+
+        # Rejoin the way the pieces were split: words back into a line,
+        # lines back into a block. Anything else falls back to newlines.
+        joiner = " " if all(s.split_kind == "words" for s in merged_from) else "\n"
+
+        merged = Section(
+            id=uuid.uuid4().hex[:8],
+            label=label or merged_from[0].label.split(".")[0],
+            lyrics=joiner.join(s.lyrics for s in merged_from),
+            seed=merged_from[0].seed,
+            ref_start=min(ref_starts) if ref_starts else None,
+            ref_end=max(ref_ends) if ref_ends else None,
+        )
+
+        for s in merged_from:
+            if s.audio_file:
+                (song.dir / s.audio_file).unlink(missing_ok=True)
+
+        song.sections[positions[0] : positions[-1] + 1] = [merged]
         self.save(song)
         return song
 

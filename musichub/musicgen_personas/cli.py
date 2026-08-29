@@ -228,6 +228,23 @@ def _cmd_song_section_instrumental(args: argparse.Namespace) -> None:
     print(f"Generated instrumental for section '{args.section_id}'.")
 
 
+def _cmd_song_split_section(args: argparse.Namespace) -> None:
+    store = SongStore()
+    song = store.get(args.song_id)
+    store.split_section(song, args.section_id, granularity=args.by)
+    print(f"Split into {len(song.sections)} section(s) total. New pieces are unrendered:")
+    for s in song.sections:
+        flag = "STALE" if s.is_stale else "ok"
+        print(f"  [{flag:5}] {s.id}  {s.label}: {s.lyrics.splitlines()[0] if s.lyrics else ''}")
+
+
+def _cmd_song_merge_sections(args: argparse.Namespace) -> None:
+    store = SongStore()
+    song = store.get(args.song_id)
+    store.merge_sections(song, args.section_ids, label=args.label)
+    print(f"Merged into one section. Regenerate it to render as a single take.")
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="musicgen-personas", description="Reusable-voice song generator")
     sub = parser.add_subparsers(dest="command", required=True)
@@ -381,6 +398,29 @@ def build_parser() -> argparse.ArgumentParser:
     s_instr.add_argument("--prompt", default="instrumental backing track")
     s_instr.add_argument("--duration", type=float, default=None, help="Seconds; defaults to the section's own length")
     s_instr.set_defaults(func=_cmd_song_section_instrumental)
+
+    s_split = song_sub.add_parser(
+        "split-section",
+        help="Split one section into smaller ones (finer edits, at some cost to flow)",
+    )
+    s_split.add_argument("song_id")
+    s_split.add_argument("section_id")
+    s_split.add_argument(
+        "--by",
+        choices=["lines", "words"],
+        default="lines",
+        help="lines (default) or words. Word-level sections regenerate in isolation "
+        "and rarely blend with their neighbours -- use sparingly.",
+    )
+    s_split.set_defaults(func=_cmd_song_split_section)
+
+    s_merge = song_sub.add_parser(
+        "merge-sections", help="Merge adjacent sections back into one, to regenerate as a single take"
+    )
+    s_merge.add_argument("song_id")
+    s_merge.add_argument("section_ids", nargs="+", help="Two or more adjacent section ids")
+    s_merge.add_argument("--label", default=None)
+    s_merge.set_defaults(func=_cmd_song_merge_sections)
 
     return parser
 
