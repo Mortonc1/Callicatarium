@@ -24,7 +24,7 @@ from pathlib import Path
 
 from .song import Section, Song, SongStore
 
-DEFAULT_INSTRUMENTAL_PROMPT = "instrumental backing track"
+DEFAULT_INSTRUMENTAL_PROMPT = ""  # empty -> derive from the song's style
 
 
 def _reference_dir(song: Song) -> Path:
@@ -138,6 +138,7 @@ def generate_section_instrumental(
     each part of the new track follows the corresponding part of the old.
     """
     from .melody import MAX_SEGMENT_SECONDS, generate_melody_conditioned
+    from .styles import instrumental_prompt_for
 
     reference = song.reference_path()
     if reference is None:
@@ -154,9 +155,12 @@ def generate_section_instrumental(
         duration = (section.ref_end or section.ref_start) - section.ref_start
     duration = max(1.0, min(duration, MAX_SEGMENT_SECONDS))
 
+    # An explicit prompt wins; otherwise build one from the song's style.
+    effective_prompt = prompt.strip() or instrumental_prompt_for(song.style_key)
+
     filename = f"{section.id}_instrumental.wav"
     generate_melody_conditioned(
-        prompt=prompt,
+        prompt=effective_prompt,
         reference_path=reference,
         out_path=song.dir / filename,
         duration=duration,

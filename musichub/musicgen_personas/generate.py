@@ -80,6 +80,7 @@ def generate_song(
     out_path: str | Path,
     seed: int | None = None,
     continuity_reset_every: int = _DEFAULT_CONTINUITY_RESET_EVERY,
+    style_key: str | None = None,
 ) -> Path:
     """Generate a song for `lyrics` in `persona`'s voice and write it to `out_path`.
 
@@ -110,6 +111,10 @@ def generate_song(
 
         torch.manual_seed(seed)
         np.random.seed(seed)
+
+    from .styles import apply_vocal_style
+
+    lyrics = apply_vocal_style(lyrics, style_key)
 
     preload_models()
     base_history_prompt = _resolve_history_prompt(persona)

@@ -27,7 +27,7 @@ def regenerate_section(store: SongStore, song: Song, section_id: str, seed: int 
 
     audio_filename = f"{section.id}.wav"
     out_path = song.dir / audio_filename
-    generate_song(persona, section.lyrics, out_path, seed=effective_seed)
+    generate_song(persona, section.lyrics, out_path, seed=effective_seed, style_key=song.style_key)
 
     section.audio_file = audio_filename
     section.rendered_lyrics = section.lyrics

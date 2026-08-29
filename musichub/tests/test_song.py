@@ -235,3 +235,31 @@ def test_edit_one_word_then_merge_back(tmp_path):
     store.update_section_lyrics(song, song.sections[3].id, "forever")
     store.merge_sections(song, [s.id for s in song.sections])
     assert store.get(song.id).sections[0].lyrics == "hold the line forever"
+
+
+def test_song_style_persists(tmp_path):
+    store = SongStore(root=tmp_path)
+    song = store.create("Song", "Aria", "a line", style_key="synthwave")
+    assert store.get(song.id).style_key == "synthwave"
+
+
+def test_set_style_validates_and_persists(tmp_path):
+    store = SongStore(root=tmp_path)
+    song = store.create("Song", "Aria", "a line")
+    assert store.get(song.id).style_key is None
+    store.set_style(song, "lofi")
+    assert store.get(song.id).style_key == "lofi"
+
+
+def test_set_style_rejects_unknown(tmp_path):
+    store = SongStore(root=tmp_path)
+    song = store.create("Song", "Aria", "a line")
+    with pytest.raises(KeyError):
+        store.set_style(song, "not-a-real-genre")
+
+
+def test_set_style_can_be_cleared(tmp_path):
+    store = SongStore(root=tmp_path)
+    song = store.create("Song", "Aria", "a line", style_key="rock")
+    store.set_style(song, None)
+    assert store.get(song.id).style_key is None

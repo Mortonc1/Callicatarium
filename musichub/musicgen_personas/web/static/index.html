@@ -164,6 +164,9 @@
         <input id="song-title" type="text" placeholder="e.g. Midnight Drive">
         <label for="song-persona-select">Voice persona</label>
         <select id="song-persona-select"></select>
+        <label for="song-style-select">Genre / style</label>
+        <select id="song-style-select"></select>
+        <div id="song-style-hint" class="hint"></div>
         <label for="song-lyrics">Lyrics</label>
         <textarea id="song-lyrics" placeholder="Verse one line one&#10;Verse one line two&#10;&#10;Chorus line one&#10;Chorus line two"></textarea>
         <div class="hint">Separate sections (verse, chorus, bridge...) with a blank line. Each becomes its own editable, regenerable block.</div>
@@ -211,6 +214,9 @@
           <button type="button" class="small danger" id="delete-song-btn">Delete</button>
         </div>
         <div id="song-detail-persona" class="item-meta"></div>
+        <label for="detail-style-select" style="margin-top:10px;">Genre / style</label>
+        <select id="detail-style-select"></select>
+        <div id="detail-style-hint" class="hint"></div>
         <div id="full-render-player"></div>
         <button type="button" id="render-song-btn">Render full song</button>
         <div id="render-status" class="status"></div>
@@ -310,6 +316,7 @@ const $ = (id) => document.getElementById(id);
 let personas = [];
 let presets = [];
 let currentSong = null;
+let styles = [];
 let clipsPollTimer = null;
 
 async function api(path, options) {
@@ -367,6 +374,26 @@ async function loadPersonas() {
 function updatePersonaHint() {
   const p = personas.find(p => p.name === $('persona-select').value);
   $('persona-hint').textContent = p ? p.description : '';
+}
+
+function styleOptions(selected) {
+  const none = `<option value="">(none — plain delivery, generic backing)</option>`;
+  return none + styles.map(s =>
+    `<option value="${s.key}"${s.key === selected ? ' selected' : ''}>${s.name} — ${s.description}</option>`
+  ).join('');
+}
+
+function styleHintText(key) {
+  const s = styles.find(s => s.key === key);
+  if (!s) return 'No style: lyrics go to Bark as written, instrumentals use a generic prompt.';
+  return `Instrumental prompt: "${s.instrumental_prompt}". Vocals: ${s.sung
+    ? 'sung (lines get ♪ cues)' : 'spoken (no singing cue)'}. Style mostly shapes the backing track; the persona’s voice does most of the vocal character.`;
+}
+
+async function loadStyles() {
+  styles = await api('/api/styles');
+  $('song-style-select').innerHTML = styleOptions('');
+  $('song-style-hint').textContent = styleHintText('');
 }
 
 async function loadPresets() {
@@ -487,7 +514,7 @@ async function createSong() {
     const song = await api('/api/songs', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ title, persona: $('song-persona-select').value, lyrics }),
+      body: JSON.stringify({ title, persona: $('song-persona-select').value, lyrics, style_key: $('song-style-select').value || null }),
     });
     $('song-title').value = ''; $('song-lyrics').value = '';
     $('create-song-status').textContent = '';
@@ -558,6 +585,8 @@ function renderSongDetail() {
   const song = currentSong;
   $('song-detail-title').textContent = song.title;
   $('song-detail-persona').textContent = `Voice: ${song.persona_name}`;
+  $('detail-style-select').innerHTML = styleOptions(song.style_key || '');
+  $('detail-style-hint').textContent = styleHintText(song.style_key || '');
 
   const fullPlayer = $('full-render-player');
   fullPlayer.innerHTML = song.has_full_render
@@ -907,9 +936,21 @@ $('separate-stems-btn').addEventListener('click', separateStems);
 $('mix-stems-btn').addEventListener('click', mixStems);
 $('from-reference-btn').addEventListener('click', createSongFromReference);
 $('merge-btn').addEventListener('click', mergePicked);
+$('song-style-select').addEventListener('change', (e) => {
+  $('song-style-hint').textContent = styleHintText(e.target.value);
+});
+$('detail-style-select').addEventListener('change', async (e) => {
+  const key = e.target.value || null;
+  $('detail-style-hint').textContent = styleHintText(e.target.value);
+  currentSong = await api(`/api/songs/${currentSong.id}/style`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ style_key: key }),
+  });
+});
 
 (async function init() {
-  await Promise.all([loadPersonas(), loadPresets()]);
+  await Promise.all([loadPersonas(), loadPresets(), loadStyles()]);
   await Promise.all([loadSongsList(), refreshClips()]);
 })();
 </script>

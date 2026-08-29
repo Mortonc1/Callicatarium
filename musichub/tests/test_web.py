@@ -420,3 +420,45 @@ def test_merge_non_adjacent_returns_400(client):
         f"/api/songs/{song['id']}/sections/merge", json={"section_ids": [ids[0], ids[2]]}
     )
     assert res.status_code == 400
+
+
+def test_styles_endpoint_lists_presets(client):
+    res = client.get("/api/styles")
+    assert res.status_code == 200
+    keys = {s["key"] for s in res.json()}
+    assert {"synthwave", "lofi", "rock", "hiphop"} <= keys
+    hiphop = next(s for s in res.json() if s["key"] == "hiphop")
+    assert hiphop["sung"] is False
+
+
+def test_create_song_with_style(client):
+    client.post("/api/personas", json={"name": "AriaSt", "voice": "v2/en_speaker_9"})
+    song = client.post(
+        "/api/songs",
+        json={"title": "Song", "persona": "AriaSt", "lyrics": "a line", "style_key": "synthwave"},
+    ).json()
+    assert song["style_key"] == "synthwave"
+
+
+def test_set_and_clear_song_style(client):
+    client.post("/api/personas", json={"name": "AriaSt2", "voice": "v2/en_speaker_9"})
+    song = client.post(
+        "/api/songs", json={"title": "Song", "persona": "AriaSt2", "lyrics": "a line"}
+    ).json()
+    assert song["style_key"] is None
+
+    set_res = client.put(f"/api/songs/{song['id']}/style", json={"style_key": "lofi"})
+    assert set_res.status_code == 200
+    assert set_res.json()["style_key"] == "lofi"
+
+    cleared = client.put(f"/api/songs/{song['id']}/style", json={"style_key": None})
+    assert cleared.json()["style_key"] is None
+
+
+def test_set_unknown_style_returns_400(client):
+    client.post("/api/personas", json={"name": "AriaSt3", "voice": "v2/en_speaker_9"})
+    song = client.post(
+        "/api/songs", json={"title": "Song", "persona": "AriaSt3", "lyrics": "a line"}
+    ).json()
+    res = client.put(f"/api/songs/{song['id']}/style", json={"style_key": "not-a-genre"})
+    assert res.status_code == 400

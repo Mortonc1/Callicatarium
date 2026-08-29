@@ -199,6 +199,44 @@ corresponds to any one piece), so the pieces start unrendered. Reference
 timing from a guide track is divided across them proportionally, so each
 piece still knows its slice for instrumental conditioning.
 
+## Genre / style
+
+Run `musichub styles` for the list. A style attaches to a song and does two
+things -- one strongly, one weakly:
+
+**Instrumentals (strong effect).** MusicGen takes a text prompt and genuinely
+responds to it, so a style supplies one: picking `synthwave` sends
+*"moody 80s synthwave, analog pads, arpeggiated bass, steady drum machine"*
+rather than a generic *"instrumental backing track"*. Set it once on the song
+and every section's instrumental uses it. An explicit `--prompt` still wins.
+
+**Vocals (weak effect).** Bark has **no genre parameter**. Nothing in a style
+can make it sing country instead of soul. Its only real levers are the voice
+preset -- which the persona already picks, and which does most of the work --
+and a few documented text cues. So a style wraps lines in `♪` when it's a
+sung genre (and leaves them plain for `hiphop` / `spoken`), and prepends tags
+like `[sighs]` where they suit. That nudges delivery. It does not change genre.
+
+```bash
+musichub styles
+musichub song create --title "Midnight Drive" --persona Aria --style synthwave --lyrics "..."
+musichub song set-style <song-id> lofi
+musichub song set-style <song-id> none     # clear it
+```
+
+In the web UI there's a Genre/style dropdown on the new-song form and on each
+song's detail page, with a line under it spelling out what the current
+choice actually does. Changing a style doesn't retro-apply to audio you've
+already rendered -- regenerate the sections you want it to affect.
+
+### A correction worth stating plainly
+
+Personas carry a `genre` field (the starter voices are tagged "pop", "rock",
+"jazz" and so on). **That field is a label only** -- it has never been passed
+to Bark and does not influence generation. It's there to help you pick a
+voice from a list. The song-level `style` described above is the setting that
+actually reaches a model.
+
 ## Stems: independently adjustable vocals/drums/bass/other
 
 Bark only ever renders one mixed waveform -- there is no way to generate
@@ -334,6 +372,7 @@ musichub/
     song.py                 # song/section data model and CRUD (no bark needed)
     song_render.py          # renders sections and stitches them with a crossfade
     licenses.py              # per-model weights licences + the commercial-only gate
+    styles.py                 # genre presets: instrumental prompts + Bark vocal cues
     stems.py                 # Demucs wrapper: splits a mix into vocals/drums/bass/other
     transcribe.py             # Whisper wrapper: timestamped lyrics from a guide track
     melody.py                  # MusicGen wrapper: melody-conditioned instrumentals

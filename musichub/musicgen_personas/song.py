@@ -66,6 +66,9 @@ class Song:
     # Path (relative to song.dir) of an imported guide track, if this song
     # was built from one. See recreate.py.
     reference_file: str | None = None
+    # Genre/style preset key (see styles.py). Strongly shapes generated
+    # instrumentals; only lightly shapes Bark's vocal delivery.
+    style_key: str | None = None
     songs_dir: Path = field(default=DEFAULT_SONGS_DIR, repr=False, compare=False)
 
     @property
@@ -94,6 +97,7 @@ class Song:
             "has_full_render": (self.dir / "full.wav").exists(),
             "stem_levels": self.stem_levels,
             "reference_file": self.reference_file,
+            "style_key": self.style_key,
             "has_reference": self.reference_file is not None,
         }
 
@@ -108,6 +112,7 @@ class Song:
             sections=[Section.from_dict(s) for s in data["sections"]],
             stem_levels=data.get("stem_levels", {}),
             reference_file=data.get("reference_file"),
+            style_key=data.get("style_key"),
             songs_dir=songs_dir,
         )
 
@@ -132,8 +137,14 @@ class SongStore:
     def _path(self, song_id: str) -> Path:
         return self.root / song_id / "song.json"
 
-    def create(self, title: str, persona_name: str, lyrics: str) -> Song:
-        song = Song(id=uuid.uuid4().hex[:12], title=title, persona_name=persona_name, songs_dir=self.root)
+    def create(self, title: str, persona_name: str, lyrics: str, style_key: str | None = None) -> Song:
+        song = Song(
+            id=uuid.uuid4().hex[:12],
+            title=title,
+            persona_name=persona_name,
+            style_key=style_key,
+            songs_dir=self.root,
+        )
         song.sections = split_into_sections(lyrics)
         self.save(song)
         return song
@@ -164,6 +175,15 @@ class SongStore:
         if not song_dir.exists():
             raise KeyError(f"No song '{song_id}'")
         shutil.rmtree(song_dir)
+
+    def set_style(self, song: Song, style_key: str | None) -> Song:
+        if style_key is not None:
+            from .styles import get as get_style
+
+            get_style(style_key)  # raises KeyError if unknown
+        song.style_key = style_key
+        self.save(song)
+        return song
 
     def update_section_lyrics(self, song: Song, section_id: str, lyrics: str) -> Song:
         section = song.section(section_id)

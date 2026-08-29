@@ -10,6 +10,7 @@ from .personas import Persona, PersonaRegistry
 from .presets import CURATED_PRESETS
 from .licenses import COMMERCIAL_ONLY_ENV, CONDITIONAL, NO, YES, commercial_only, summary_rows
 from .song import SongStore
+from .styles import STYLES, get as get_style
 
 
 def _cmd_persona_list(args: argparse.Namespace) -> None:
@@ -100,7 +101,7 @@ def _cmd_song_create(args: argparse.Namespace) -> None:
     if not lyrics:
         print("Provide --lyrics or --lyrics-file", file=sys.stderr)
         sys.exit(1)
-    song = store.create(args.title, args.persona, lyrics)
+    song = store.create(args.title, args.persona, lyrics, style_key=getattr(args, 'style', None))
     print(f"Created song '{song.title}' ({song.id}) with {len(song.sections)} section(s):")
     for s in song.sections:
         print(f"  {s.id}  {s.label}")
@@ -260,6 +261,29 @@ def _cmd_licenses(args: argparse.Namespace) -> None:
     print("Not legal advice; licences change. Check the URLs before releasing commercially.")
 
 
+def _cmd_styles(args: argparse.Namespace) -> None:
+    print("Style presets. These strongly shape generated instrumentals; they only")
+    print("lightly affect Bark's vocal delivery (see 'sings' below).\n")
+    for key in sorted(STYLES):
+        s = STYLES[key]
+        print(f"{s.key:12} {s.name:14} sings={'yes' if s.sung else 'no ':3}  {s.description}")
+        print(f"{'':12} instrumental: {s.instrumental_prompt}")
+
+
+def _cmd_song_set_style(args: argparse.Namespace) -> None:
+    store = SongStore()
+    song = store.get(args.song_id)
+    style_key = None if args.style_key.lower() in ("none", "clear") else args.style_key
+    store.set_style(song, style_key)
+    if style_key:
+        s = get_style(style_key)
+        print(f"Style set to {s.name}. Sections must be regenerated to hear the change.")
+        print(f"  instrumental prompt: {s.instrumental_prompt}")
+        print(f"  vocals: {'sung (lines get music-note cues)' if s.sung else 'spoken (no singing cue)'}")
+    else:
+        print("Style cleared.")
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="musicgen-personas", description="Reusable-voice song generator")
     sub = parser.add_subparsers(dest="command", required=True)
@@ -319,6 +343,8 @@ def build_parser() -> argparse.ArgumentParser:
     s_create.add_argument("--persona", required=True)
     s_create.add_argument("--lyrics", default="")
     s_create.add_argument("--lyrics-file", default="")
+    s_create.add_argument("--style", default=None, dest="style", choices=sorted(STYLES),
+                          help="Genre preset (see 'musichub styles')")
     s_create.set_defaults(func=_cmd_song_create)
 
     s_list = song_sub.add_parser("list", help="List songs")
@@ -441,6 +467,14 @@ def build_parser() -> argparse.ArgumentParser:
         "licenses", help="Show each model's weights licence and whether you can sell the output"
     )
     lic.set_defaults(func=_cmd_licenses)
+
+    s_style = song_sub.add_parser("set-style", help="Set or clear a song's genre style")
+    s_style.add_argument("song_id")
+    s_style.add_argument("style_key", help="A style key, or 'none' to clear")
+    s_style.set_defaults(func=_cmd_song_set_style)
+
+    st = sub.add_parser("styles", help="List genre/style presets and what each actually changes")
+    st.set_defaults(func=_cmd_styles)
 
     return parser
 

@@ -26,6 +26,7 @@ from pydantic import BaseModel
 from ..personas import Persona, PersonaRegistry
 from ..presets import CURATED_PRESETS
 from ..song import SongStore
+from ..styles import STYLES
 
 STATIC_DIR = Path(__file__).resolve().parent / "static"
 OUTPUT_DIR = Path(__file__).resolve().parent.parent.parent / "output"
@@ -75,6 +76,7 @@ class CreateSongRequest(BaseModel):
     title: str
     persona: str
     lyrics: str
+    style_key: Optional[str] = None
 
 
 class UpdateSectionRequest(BaseModel):
@@ -100,6 +102,10 @@ class SetStemLevelRequest(BaseModel):
     muted: Optional[bool] = None
 
 
+class SetStyleRequest(BaseModel):
+    style_key: Optional[str] = None
+
+
 class SplitSectionRequest(BaseModel):
     granularity: str = "lines"
 
@@ -123,6 +129,20 @@ def index() -> HTMLResponse:
 def list_personas():
     with _registry_lock:
         return [p.to_dict() for p in PersonaRegistry().list()]
+
+
+@app.get("/api/styles")
+def list_styles():
+    return [
+        {
+            "key": s.key,
+            "name": s.name,
+            "description": s.description,
+            "sung": s.sung,
+            "instrumental_prompt": s.instrumental_prompt,
+        }
+        for s in sorted(STYLES.values(), key=lambda s: s.name)
+    ]
 
 
 @app.get("/api/presets")
@@ -250,7 +270,10 @@ def create_song(req: CreateSongRequest):
             PersonaRegistry().get(req.persona)
         except KeyError as exc:
             raise HTTPException(status_code=404, detail=str(exc)) from exc
-        song = SongStore().create(req.title, req.persona, req.lyrics)
+        try:
+            song = SongStore().create(req.title, req.persona, req.lyrics, style_key=req.style_key)
+        except KeyError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
         return song.to_dict()
 
 
@@ -271,6 +294,21 @@ def delete_song(song_id: str):
         except KeyError as exc:
             raise HTTPException(status_code=404, detail=str(exc)) from exc
     return {"deleted": song_id}
+
+
+@app.put("/api/songs/{song_id}/style")
+def set_song_style(song_id: str, req: SetStyleRequest):
+    with _songs_lock:
+        store = SongStore()
+        try:
+            song = store.get(song_id)
+        except KeyError as exc:
+            raise HTTPException(status_code=404, detail=str(exc)) from exc
+        try:
+            store.set_style(song, req.style_key)
+        except KeyError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        return song.to_dict()
 
 
 @app.put("/api/songs/{song_id}/sections/{section_id}")
