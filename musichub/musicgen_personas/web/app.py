@@ -18,7 +18,7 @@ from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from typing import Optional
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, File, Form, HTTPException, UploadFile
 from fastapi.responses import FileResponse, HTMLResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
@@ -29,6 +29,7 @@ from ..song import SongStore
 
 STATIC_DIR = Path(__file__).resolve().parent / "static"
 OUTPUT_DIR = Path(__file__).resolve().parent.parent.parent / "output"
+UPLOAD_DIR = Path(__file__).resolve().parent.parent.parent / "uploads"
 
 app = FastAPI(title="musicgen-personas")
 app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
@@ -97,6 +98,11 @@ class RegenerateSectionRequest(BaseModel):
 class SetStemLevelRequest(BaseModel):
     gain: Optional[float] = None
     muted: Optional[bool] = None
+
+
+class SectionInstrumentalRequest(BaseModel):
+    prompt: str = "instrumental backing track"
+    duration: Optional[float] = None
 
 
 @app.get("/", response_class=HTMLResponse)
@@ -497,6 +503,109 @@ def stem_audio(song_id: str, stem_name: str):
     if not stem_path.exists():
         raise HTTPException(status_code=404, detail="Stem file missing on disk")
     return FileResponse(stem_path, media_type="audio/wav")
+
+
+# ---- Recreate: build an editable song project from a guide track ----
+
+
+def _run_from_reference(
+    job_id: str, title: str, persona_name: str, reference_path: str, model_size: str, isolate: bool
+) -> None:
+    from ..recreate import create_song_from_reference
+
+    job = _jobs[job_id]
+    job["status"] = "running"
+    try:
+        with _songs_lock:
+            store = SongStore()
+        song = create_song_from_reference(
+            store,
+            title=title,
+            persona_name=persona_name,
+            reference_path=reference_path,
+            use_isolated_vocals=isolate,
+            model_size=model_size,
+        )
+        job["status"] = "done"
+        job["song_id"] = song.id
+    except Exception as exc:  # noqa: BLE001 -- surfaced to the client via /api/jobs/{id}
+        job["status"] = "error"
+        job["error"] = str(exc)
+    finally:
+        Path(reference_path).unlink(missing_ok=True)  # the copy inside the song dir is the keeper
+
+
+@app.post("/api/songs/from-reference")
+async def create_song_from_reference_endpoint(
+    title: str = Form(...),
+    persona: str = Form(...),
+    model_size: str = Form("base"),
+    isolate_vocals: bool = Form(True),
+    reference: UploadFile = File(...),
+):
+    with _registry_lock:
+        try:
+            PersonaRegistry().get(persona)
+        except KeyError as exc:
+            raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+    suffix = Path(reference.filename or "reference.wav").suffix or ".wav"
+    UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
+    tmp_path = UPLOAD_DIR / f"{uuid.uuid4().hex}{suffix}"
+    tmp_path.write_bytes(await reference.read())
+
+    job_id = _new_job(f"{title} (from reference)")
+    _executor.submit(
+        _run_from_reference, job_id, title, persona, str(tmp_path), model_size, isolate_vocals
+    )
+    return {"job_id": job_id}
+
+
+def _run_section_instrumental(
+    job_id: str, song_id: str, section_id: str, prompt: str, duration: Optional[float]
+) -> None:
+    from ..recreate import generate_section_instrumental
+
+    job = _jobs[job_id]
+    job["status"] = "running"
+    try:
+        with _songs_lock:
+            store = SongStore()
+            song = store.get(song_id)
+        generate_section_instrumental(store, song, section_id, prompt=prompt, duration=duration)
+        job["status"] = "done"
+    except Exception as exc:  # noqa: BLE001 -- surfaced to the client via /api/jobs/{id}
+        job["status"] = "error"
+        job["error"] = str(exc)
+
+
+@app.post("/api/songs/{song_id}/sections/{section_id}/instrumental")
+def section_instrumental_endpoint(song_id: str, section_id: str, req: SectionInstrumentalRequest):
+    with _songs_lock:
+        try:
+            song = SongStore().get(song_id)
+            section = song.section(section_id)
+        except KeyError as exc:
+            raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+    job_id = _new_job(f"{song.title} — {section.label} (instrumental)")
+    _executor.submit(
+        _run_section_instrumental, job_id, song_id, section_id, req.prompt, req.duration
+    )
+    return {"job_id": job_id}
+
+
+@app.get("/api/songs/{song_id}/sections/{section_id}/instrumental/audio")
+def section_instrumental_audio(song_id: str, section_id: str):
+    with _songs_lock:
+        try:
+            song = SongStore().get(song_id)
+            section = song.section(section_id)
+        except KeyError as exc:
+            raise HTTPException(status_code=404, detail=str(exc)) from exc
+    if not section.instrumental_file:
+        raise HTTPException(status_code=404, detail="No instrumental generated for this section")
+    return FileResponse(song.dir / section.instrumental_file, media_type="audio/wav")
 
 
 def run() -> None:

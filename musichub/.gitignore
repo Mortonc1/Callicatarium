@@ -16,3 +16,6 @@ personas/custom/*.npz
 
 # Bark model weight cache, if pointed here
 .cache/
+
+# Temp upload staging for reference tracks
+/uploads/

@@ -15,7 +15,7 @@ import re
 import shutil
 import time
 import uuid
-from dataclasses import asdict, dataclass, field
+from dataclasses import asdict, dataclass, field, fields
 from pathlib import Path
 
 DEFAULT_SONGS_DIR = Path(__file__).resolve().parent.parent / "songs"
@@ -29,6 +29,11 @@ class Section:
     seed: int | None = None
     rendered_lyrics: str | None = None  # lyrics text as of the last successful render
     audio_file: str | None = None  # filename within the song's directory
+    # Where this section sits in an imported reference track, when the song
+    # was built from one -- used to condition generation on the matching slice.
+    ref_start: float | None = None
+    ref_end: float | None = None
+    instrumental_file: str | None = None  # melody-conditioned backing, if generated
 
     @property
     def is_stale(self) -> bool:
@@ -41,8 +46,8 @@ class Section:
 
     @classmethod
     def from_dict(cls, data: dict) -> "Section":
-        data = {k: v for k, v in data.items() if k != "is_stale"}
-        return cls(**data)
+        known = {f.name for f in fields(cls)}
+        return cls(**{k: v for k, v in data.items() if k in known})
 
 
 @dataclass
@@ -55,11 +60,19 @@ class Song:
     updated_at: float = field(default_factory=time.time)
     # {stem_name: {"gain": float, "muted": bool}}, populated by separate_song_stems.
     stem_levels: dict[str, dict] = field(default_factory=dict)
+    # Path (relative to song.dir) of an imported guide track, if this song
+    # was built from one. See recreate.py.
+    reference_file: str | None = None
     songs_dir: Path = field(default=DEFAULT_SONGS_DIR, repr=False, compare=False)
 
     @property
     def dir(self) -> Path:
         return self.songs_dir / self.id
+
+    def reference_path(self) -> Path | None:
+        if not self.reference_file:
+            return None
+        return self.dir / self.reference_file
 
     def section(self, section_id: str) -> Section:
         for s in self.sections:
@@ -77,6 +90,8 @@ class Song:
             "sections": [s.to_dict() for s in self.sections],
             "has_full_render": (self.dir / "full.wav").exists(),
             "stem_levels": self.stem_levels,
+            "reference_file": self.reference_file,
+            "has_reference": self.reference_file is not None,
         }
 
     @classmethod
@@ -89,6 +104,7 @@ class Song:
             updated_at=data["updated_at"],
             sections=[Section.from_dict(s) for s in data["sections"]],
             stem_levels=data.get("stem_levels", {}),
+            reference_file=data.get("reference_file"),
             songs_dir=songs_dir,
         )
 

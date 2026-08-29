@@ -197,6 +197,37 @@ def _cmd_song_mix_stems(args: argparse.Namespace) -> None:
     print(f"Wrote {out_path}")
 
 
+def _cmd_song_from_reference(args: argparse.Namespace) -> None:
+    from .recreate import create_song_from_reference  # lazy: needs whisper (+demucs)
+
+    store = SongStore()
+    song = create_song_from_reference(
+        store,
+        title=args.title,
+        persona_name=args.persona,
+        reference_path=args.reference,
+        use_isolated_vocals=not args.no_isolate_vocals,
+        model_size=args.model_size,
+    )
+    print(f"Created song '{song.title}' ({song.id}) with {len(song.sections)} section(s):")
+    for s in song.sections:
+        span = f"{s.ref_start:.1f}-{s.ref_end:.1f}s" if s.ref_start is not None else "?"
+        first_line = s.lyrics.splitlines()[0] if s.lyrics else ""
+        print(f"  {s.id}  [{span:>14}]  {first_line}")
+    print("\nTranscription is a starting point, not gospel -- check the lyrics before rendering.")
+
+
+def _cmd_song_section_instrumental(args: argparse.Namespace) -> None:
+    from .recreate import generate_section_instrumental  # lazy: needs audiocraft
+
+    store = SongStore()
+    song = store.get(args.song_id)
+    generate_section_instrumental(
+        store, song, args.section_id, prompt=args.prompt, duration=args.duration
+    )
+    print(f"Generated instrumental for section '{args.section_id}'.")
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="musicgen-personas", description="Reusable-voice song generator")
     sub = parser.add_subparsers(dest="command", required=True)
@@ -319,6 +350,37 @@ def build_parser() -> argparse.ArgumentParser:
     s_mix.add_argument("song_id")
     s_mix.add_argument("--out", required=True)
     s_mix.set_defaults(func=_cmd_song_mix_stems)
+
+    s_from_ref = song_sub.add_parser(
+        "from-reference",
+        help="Create a song from a guide track: transcribe its lyrics and mirror its structure",
+    )
+    s_from_ref.add_argument("--title", required=True)
+    s_from_ref.add_argument("--persona", required=True)
+    s_from_ref.add_argument("--reference", required=True, help="Path to the guide audio (wav/mp3)")
+    s_from_ref.add_argument(
+        "--model-size",
+        default="base",
+        dest="model_size",
+        help="Whisper model: tiny/base/small/medium/large-v3 (bigger = slower, more accurate)",
+    )
+    s_from_ref.add_argument(
+        "--no-isolate-vocals",
+        action="store_true",
+        dest="no_isolate_vocals",
+        help="Transcribe the full mix instead of splitting out the vocal stem first",
+    )
+    s_from_ref.set_defaults(func=_cmd_song_from_reference)
+
+    s_instr = song_sub.add_parser(
+        "section-instrumental",
+        help="Generate a melody-conditioned instrumental bed for one section",
+    )
+    s_instr.add_argument("song_id")
+    s_instr.add_argument("section_id")
+    s_instr.add_argument("--prompt", default="instrumental backing track")
+    s_instr.add_argument("--duration", type=float, default=None, help="Seconds; defaults to the section's own length")
+    s_instr.set_defaults(func=_cmd_song_section_instrumental)
 
     return parser
 

@@ -306,3 +306,69 @@ def test_stem_mix_job_and_audio(client):
 
     mix_res = client.get(f"/api/songs/{song_id}/stems/mix/audio")
     assert mix_res.status_code == 200
+
+
+def test_from_reference_job_lifecycle(client, monkeypatch, tmp_path):
+    # Transcription needs Whisper's weights over the network; what's under
+    # test is this project's upload -> job -> song wiring, so the transcribe
+    # step is mocked to fail fast.
+    def _fail(*args, **kwargs):
+        raise RuntimeError("whisper unavailable in test environment")
+
+    monkeypatch.setattr("musicgen_personas.recreate.create_song_from_reference", _fail)
+
+    client.post("/api/personas", json={"name": "AriaR", "voice": "v2/en_speaker_9"})
+    res = client.post(
+        "/api/songs/from-reference",
+        data={"title": "Recreated", "persona": "AriaR", "model_size": "base", "isolate_vocals": "false"},
+        files={"reference": ("ref.mp3", b"not really audio", "audio/mpeg")},
+    )
+    assert res.status_code == 200
+    status = _wait_for_job(client, res.json()["job_id"])
+    assert status["status"] == "error"
+    assert "whisper unavailable" in status["error"]
+
+
+def test_from_reference_rejects_unknown_persona(client):
+    res = client.post(
+        "/api/songs/from-reference",
+        data={"title": "Recreated", "persona": "Nope"},
+        files={"reference": ("ref.mp3", b"x", "audio/mpeg")},
+    )
+    assert res.status_code == 404
+
+
+def test_section_instrumental_job_and_audio(client, monkeypatch):
+    from musicgen_personas.song import SongStore
+
+    client.post("/api/personas", json={"name": "AriaI", "voice": "v2/en_speaker_9"})
+    song = client.post("/api/songs", json={"title": "Song", "persona": "AriaI", "lyrics": "verse"}).json()
+    section_id = song["sections"][0]["id"]
+
+    no_instrumental = client.get(f"/api/songs/{song['id']}/sections/{section_id}/instrumental/audio")
+    assert no_instrumental.status_code == 404
+
+    def fake_generate(store, s, sid, prompt="x", duration=None):
+        import numpy as np
+        from scipy.io.wavfile import write as write_wav
+
+        section = s.section(sid)
+        s.dir.mkdir(parents=True, exist_ok=True)
+        filename = f"{sid}_instrumental.wav"
+        write_wav(s.dir / filename, 24000, np.zeros(1000, dtype=np.float32))
+        section.instrumental_file = filename
+        store.save(s)
+        return s
+
+    monkeypatch.setattr("musicgen_personas.recreate.generate_section_instrumental", fake_generate)
+
+    res = client.post(
+        f"/api/songs/{song['id']}/sections/{section_id}/instrumental",
+        json={"prompt": "moody synthwave"},
+    )
+    assert res.status_code == 200
+    status = _wait_for_job(client, res.json()["job_id"])
+    assert status["status"] == "done"
+
+    audio = client.get(f"/api/songs/{song['id']}/sections/{section_id}/instrumental/audio")
+    assert audio.status_code == 200

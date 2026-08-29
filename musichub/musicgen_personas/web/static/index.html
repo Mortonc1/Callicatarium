@@ -170,6 +170,37 @@
         <button type="button" id="create-song-btn">Create song</button>
         <div id="create-song-status" class="status"></div>
       </div>
+
+      <div class="card">
+        <h2>From a guide track</h2>
+        <div class="hint">Upload a track you already have. Its vocals get transcribed into
+          timestamped lyrics and split into sections matching the original's structure, so you
+          start with an editable project instead of a blank page. The transcript is a starting
+          point &mdash; check it before rendering.</div>
+        <label for="ref-title">Title</label>
+        <input id="ref-title" type="text" placeholder="e.g. Static Mercy (rebuilt)">
+        <label for="ref-persona-select">Voice persona</label>
+        <select id="ref-persona-select"></select>
+        <label for="ref-file">Guide track (wav/mp3)</label>
+        <input id="ref-file" type="file" accept="audio/*">
+        <details>
+          <summary>Advanced</summary>
+          <label for="ref-model-size">Transcription model</label>
+          <select id="ref-model-size">
+            <option value="tiny">tiny — fastest, roughest</option>
+            <option value="base" selected>base — balanced</option>
+            <option value="small">small</option>
+            <option value="medium">medium</option>
+            <option value="large-v3">large-v3 — slowest, most accurate</option>
+          </select>
+          <label style="display:flex; align-items:center; gap:8px;">
+            <input type="checkbox" id="ref-isolate" checked style="width:auto; margin:0;">
+            Split out the vocal stem first (better transcription, slower)
+          </label>
+        </details>
+        <button type="button" id="from-reference-btn">Transcribe &amp; build song</button>
+        <div id="from-reference-status" class="status"></div>
+      </div>
     </div>
 
     <div id="song-detail-view" hidden>
@@ -321,6 +352,7 @@ async function loadPersonas() {
   const options = personas.map(p => `<option value="${p.name}">${personaLabel(p)}</option>`).join('');
   $('persona-select').innerHTML = options;
   $('song-persona-select').innerHTML = options;
+  $('ref-persona-select').innerHTML = options;
   updatePersonaHint();
 }
 
@@ -458,6 +490,47 @@ async function createSong() {
   }
 }
 
+async function createSongFromReference() {
+  const title = $('ref-title').value.trim();
+  const fileInput = $('ref-file');
+  if (!title) { $('from-reference-status').textContent = 'Give the song a title.'; return; }
+  if (!fileInput.files.length) { $('from-reference-status').textContent = 'Pick a guide track first.'; return; }
+
+  const btn = $('from-reference-btn');
+  btn.disabled = true;
+  $('from-reference-status').textContent = 'Uploading — transcription can take several minutes...';
+
+  const form = new FormData();
+  form.append('title', title);
+  form.append('persona', $('ref-persona-select').value);
+  form.append('model_size', $('ref-model-size').value);
+  form.append('isolate_vocals', $('ref-isolate').checked ? 'true' : 'false');
+  form.append('reference', fileInput.files[0]);
+
+  try {
+    const res = await fetch('/api/songs/from-reference', { method: 'POST', body: form });
+    const body = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(body.detail || res.statusText);
+
+    await pollJob(body.job_id, {
+      onTick: (s) => { $('from-reference-status').textContent = s.status + '...'; },
+      onDone: async () => {
+        $('from-reference-status').textContent = 'Done!';
+        btn.disabled = false;
+        $('ref-title').value = ''; fileInput.value = '';
+        await loadSongsList();
+      },
+      onError: (s) => {
+        $('from-reference-status').textContent = 'Failed: ' + (s.error || 'unknown error');
+        btn.disabled = false;
+      },
+    });
+  } catch (e) {
+    $('from-reference-status').textContent = e.message;
+    btn.disabled = false;
+  }
+}
+
 async function openSong(songId) {
   currentSong = await api(`/api/songs/${songId}`);
   $('songs-list-view').hidden = true;
@@ -500,6 +573,15 @@ function renderSongDetail() {
       </div>
       <div class="section-status status"></div>
       ${s.is_stale ? '' : `<audio controls src="/api/songs/${song.id}/sections/${s.id}/audio?ts=${Date.now()}"></audio>`}
+      ${s.ref_start === null || s.ref_start === undefined ? '' : `
+        <details style="margin-top:10px;">
+          <summary>Instrumental (guided by ${s.ref_start.toFixed(1)}–${(s.ref_end ?? s.ref_start).toFixed(1)}s of the guide track)</summary>
+          <input type="text" class="instrumental-prompt" placeholder="e.g. moody synthwave, slow tempo" value="instrumental backing track">
+          <button type="button" class="small gen-instrumental">Generate instrumental</button>
+          <div class="instrumental-status status"></div>
+          ${s.instrumental_file ? `<audio controls src="/api/songs/${song.id}/sections/${s.id}/instrumental/audio?ts=${Date.now()}"></audio>` : ''}
+        </details>
+      `}
     </div>
   `).join('');
 
@@ -510,6 +592,8 @@ function renderSongDetail() {
     card.querySelector('.remove-section').addEventListener('click', () => removeSection(sectionId));
     card.querySelector('.move-up').addEventListener('click', () => moveSection(sectionId, -1));
     card.querySelector('.move-down').addEventListener('click', () => moveSection(sectionId, 1));
+    const instrBtn = card.querySelector('.gen-instrumental');
+    if (instrBtn) instrBtn.addEventListener('click', () => generateInstrumental(sectionId, card));
   });
 
   renderStems();
@@ -655,6 +739,29 @@ async function regenerateSection(sectionId, card) {
   }
 }
 
+async function generateInstrumental(sectionId, card) {
+  const statusEl = card.querySelector('.instrumental-status');
+  const btn = card.querySelector('.gen-instrumental');
+  const prompt = card.querySelector('.instrumental-prompt').value.trim() || 'instrumental backing track';
+  btn.disabled = true;
+  statusEl.textContent = 'Queued...';
+  try {
+    const { job_id } = await api(`/api/songs/${currentSong.id}/sections/${sectionId}/instrumental`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ prompt }),
+    });
+    await pollJob(job_id, {
+      onTick: (s) => { statusEl.textContent = s.status + '...'; },
+      onDone: async () => { statusEl.textContent = 'Done!'; btn.disabled = false; await refreshCurrentSong(); },
+      onError: (s) => { statusEl.textContent = 'Failed: ' + (s.error || 'unknown error'); btn.disabled = false; },
+    });
+  } catch (e) {
+    statusEl.textContent = e.message;
+    btn.disabled = false;
+  }
+}
+
 async function removeSection(sectionId) {
   if (!confirm('Remove this section?')) return;
   currentSong = await api(`/api/songs/${currentSong.id}/sections/${sectionId}`, { method: 'DELETE' });
@@ -725,6 +832,7 @@ $('render-song-btn').addEventListener('click', renderFullSong);
 $('delete-song-btn').addEventListener('click', deleteSong);
 $('separate-stems-btn').addEventListener('click', separateStems);
 $('mix-stems-btn').addEventListener('click', mixStems);
+$('from-reference-btn').addEventListener('click', createSongFromReference);
 
 (async function init() {
   await Promise.all([loadPersonas(), loadPresets()]);

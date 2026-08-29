@@ -198,6 +198,48 @@ trained and tuned on real multitrack recordings, and how well it separates
 a Bark mix is an open question you'll answer the first time you actually
 run it.
 
+## Recreating a song from a guide track
+
+Point MusicHub at a track you already have and it builds an editable song
+project from it: Whisper transcribes the vocals into timestamped lines,
+those lines get grouped into sections at natural gaps, and each section
+records where it sat in the original (`ref_start`/`ref_end`). You end up
+with your song's structure and lyrics already laid out and editable,
+instead of a blank page.
+
+Each section can then generate a **melody-conditioned instrumental** via
+MusicGen, conditioned on that section's own slice of the guide track --
+so each part of the new track follows the corresponding part of the old.
+
+```bash
+musichub song from-reference --title "Static Mercy (rebuilt)" --persona Aria \
+  --reference ~/Music/static_mercy.mp3 --model-size base
+musichub song section-instrumental <song-id> <section-id> --prompt "moody synthwave, slow tempo"
+```
+
+The web UI has the same flow under **From a guide track** -- upload from
+your phone, pick a voice, and it builds the project.
+
+Requires `pip install -e ".[transcribe,melody]"` (and `[stems]`, which the
+default vocal-isolation path uses).
+
+### What this does and doesn't do
+
+- The guide track's audio is **never copied, sampled, or remixed** into the
+  output. Transcription produces text; melody conditioning extracts only a
+  coarse chromagram (roughly: which pitch classes sound over time). Every
+  audio sample in the result is newly generated.
+- That also caps how close it can get. Expect "recognisably the same tune,
+  clearly a different recording" -- not a near-duplicate. If you're hoping
+  for something indistinguishable from the original, this technique will
+  disappoint you, and no open-source pipeline available today will do
+  better.
+- Whisper is trained on **speech, not singing**. Transcripts of sung vocals
+  are rough -- expect to correct them by hand. Isolating the vocal stem
+  first (the default) helps a lot; a bigger `--model-size` helps more.
+- MusicGen's melody model generates **instrumental music** and does not
+  sing. Vocals come from Bark separately, via the normal section pipeline.
+
 ## Project layout
 
 ```
@@ -208,6 +250,9 @@ musichub/
     song.py                 # song/section data model and CRUD (no bark needed)
     song_render.py          # renders sections and stitches them with a crossfade
     stems.py                 # Demucs wrapper: splits a mix into vocals/drums/bass/other
+    transcribe.py             # Whisper wrapper: timestamped lyrics from a guide track
+    melody.py                  # MusicGen wrapper: melody-conditioned instrumentals
+    recreate.py                 # guide track -> transcript -> sectioned song project
     song_stems.py             # song-level separate/gain/mute/mix on top of stems.py
     generate.py, personas.py, clone.py, presets.py
   personas/
@@ -281,3 +326,16 @@ to disk, adjust gain over the API, submit a mix job, fetch the resulting
 audio) -- all of that is verified for real. What's specifically
 unconfirmed is Demucs' actual separation quality on Bark-generated audio,
 which needs that network access and, more importantly, real ears.
+
+The recreate pipeline was verified end-to-end over real HTTP with an actual
+18MB MP3: the upload was accepted, a background job was created and ran,
+the temp upload was cleaned up correctly afterwards, and the job failed
+only at Whisper's model download (the same blocked host as everywhere
+else). `faster-whisper` installs and imports cleanly. Everything this
+project actually controls is tested directly: transcript-segment grouping
+(gap and line-count boundaries, measured from segment *end* times),
+segment-to-section mapping with reference timing preserved across a disk
+round-trip, reference import, and instrumental conditioning on the correct
+slice with MusicGen's 30s ceiling enforced. Unverified here, for the usual
+reason: real transcription accuracy on sung vocals, and what
+melody-conditioned output actually sounds like.
